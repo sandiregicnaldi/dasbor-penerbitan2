@@ -1,0 +1,39 @@
+=== USERS ===
+  id=fj9SDDZP7MKWzPRwpiIGpOCQDPyMaTp6 name=Admin Penerbitan email=admin@penerbitan.com role=admin status=active skills=["Admin","QC"]
+  id=eohFZuWLgVyl9t6zCtvfOWqnkgNkUsMs name=Ghost User email=ghost_1771574460134@test.com role=personil status=pending skills=null
+  id=tnU02AYjMlbyOeiZFXeMj0yp2JlgwY8V name=Writer email=ghost_writer_1771574604948@test.com role=personil status=pending skills=null
+  id=9RepQpmRkc931gVVqoXkHU4cGfQSOAh7 name=Writer email=ghost_writer_1771574640709@test.com role=personil status=pending skills=null
+  id=IOwrFhcqwF9p4FUzdIReR8LS4DhkbccC name=Writer email=ghost_writer_1771574672031@test.com role=personil status=pending skills=null
+  id=qXGgg1YrAKB8emoim0f8Zr7g5TEu2qrs name=Writer email=ghost_writer_1771574891922@test.com role=personil status=pending skills=null
+  id=HtzNGhv8djMsN8QzQd7P8RU0pNyJTPT1 name=Writer email=ghost_writer_1771575058665@test.com role=personil status=pending skills=null
+  id=Y9NeWEZA0tFx8QdELxqic47EKPSkUV01 name=Editor Senior email=editor@penerbitan.com role=personil status=active skills=["Editor","Tata Letak","Editing","keuangan","editor","isbn"]
+  id=ADiAyRrIT6ER2GgCRyy0n7Yp33cZLWWO name=Ghost User email=ghost_1771574310840@test.com role=personil status=active skills=["administrasi","isbn"]
+  id=RVn5BQBPaDSBSqreqxzIFIVi7CUn5y4Z name=Ghost User email=ghost_1771574267158@test.com role=personil status=active skills=["keuangan"]
+  id=m2PQU4UqLSwnxAnWTJY1nGdAtkZw2Te6 name=Staf Penerbitan email=user@penerbitan.com role=personil status=active skills=["Editor","Layout","Editing","Admin","administrasi","isbn"]
+
+=== PROJECTS WITH STAGES ===
+PROJECT: id=PRJ-2026-PSPB title="coba ah" cat=terbitan gdrive=https://docs.google.com/spreadsheets/d/1Dpkm4e3KUHcjCitU9MitXIa_G6hawspVimzO_KBF4FY/edit?gid=916465758#gid=916465758
+  STAGE: ord=1 label="Kelengkapan Naskah" status=active pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=2 label="Pembuatan Surat Penerimaan Terbitan" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=3 label="Penyuntingan" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=4 label="Tata Letak Naskah" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=5 label="Desain Sampul" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=6 label="Kendali Kualitas" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=7 label="Penerbitan ISBN" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=8 label="Unggah ke Sipena dan Ipusnas" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=9 label="Pembuatan Surat Keterangan Terbit" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=10 label="Serah Terima Karya Cetak dan Rekam" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+
+PROJECT: id=PRJ-2026-9924 title="tes dulu" cat=terbitan gdrive=https://docs.google.com/spreadsheets/d/1Dpkm4e3KUHcjCitU9MitXIa_G6hawspVimzO_KBF4FY/edit?gid=916465758#gid=916465758
+  STAGE: ord=1 label="Kelengkapan Naskah" status=active pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=2 label="Pembuatan Surat Penerimaan Terbitan" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=3 label="Penyuntingan" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=4 label="Tata Letak Naskah" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=5 label="Desain Sampul" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=6 label="Kendali Kualitas" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=7 label="Penerbitan ISBN" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=8 label="Unggah ke Sipena dan Ipusnas" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=9 label="Pembuatan Surat Keterangan Terbit" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+  STAGE: ord=10 label="Serah Terima Karya Cetak dan Rekam" status=draft pjId=NULL pjName=NONE deadline=NULL result=NULL
+
+=== AUDIT COMPLETE ===

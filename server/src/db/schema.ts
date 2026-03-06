@@ -13,6 +13,7 @@ export const users = pgTable("user", {
 
     // Custom fields
     role: text("role").default("personil"), // 'admin' | 'personil'
+    status: text("status").default("pending"), // 'pending' | 'active' | 'disabled'
     avatarInitials: varchar("avatar_initials", { length: 2 }),
     skills: jsonb("skills").$type<string[]>(), // Array of skills
 });
@@ -103,9 +104,10 @@ export const documents = pgTable("documents", {
 
 // NIP History
 export const nipRecords = pgTable("nip_records", {
-    id: uuid("id").defaultRandom().primaryKey(),
-    barcode: text("barcode").notNull().unique(), // 14 digit
-    visualFormat: text("visual_format").notNull(), // Readable
+    id: serial("id").primaryKey(),
+    barcode: text("barcode").notNull().unique(), // e.g. 370202602K1001C
+    visualFormat: text("visual_format").notNull(), // e.g. 370 - 202602 - K1 - 001 - C
+    title: text("title"), // Judul Buku
     ddcCode: text("ddc_code").notNull(),
     ddcLabel: text("ddc_label"),
     yearMonth: text("year_month").notNull(), // YYYYMM
@@ -115,3 +117,37 @@ export const nipRecords = pgTable("nip_records", {
     formatCode: text("format_code").notNull(),
     createdAt: timestamp("created_at").defaultNow(),
 });
+
+// ---- Drizzle Relations (required for relational queries with `with:`) ----
+import { relations } from "drizzle-orm";
+
+export const usersRelations = relations(users, ({ many }) => ({
+    sessions: many(sessions),
+    accounts: many(accounts),
+    stages: many(stages, { relationName: "pjStages" }),
+    notifications: many(notifications),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+    user: one(users, { fields: [sessions.userId], references: [users.id] }),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+    user: one(users, { fields: [accounts.userId], references: [users.id] }),
+}));
+
+export const projectsRelations = relations(projects, ({ many }) => ({
+    stages: many(stages),
+    notifications: many(notifications),
+}));
+
+export const stagesRelations = relations(stages, ({ one }) => ({
+    project: one(projects, { fields: [stages.projectId], references: [projects.id] }),
+    pj: one(users, { fields: [stages.pjId], references: [users.id], relationName: "pjStages" }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+    user: one(users, { fields: [notifications.userId], references: [users.id] }),
+    project: one(projects, { fields: [notifications.projectId], references: [projects.id] }),
+}));
+

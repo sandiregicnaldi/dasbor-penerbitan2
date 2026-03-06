@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext'
 import {
     HiOutlineHome, HiOutlineFolder, HiOutlineArchiveBox,
     HiOutlineQrCode, HiOutlineDocument, HiOutlineChartBar,
-    HiOutlineChevronLeft, HiOutlineChevronRight
+    HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineUsers
 } from 'react-icons/hi2'
 import { useState } from 'react'
 
@@ -16,9 +16,13 @@ const NAV_ITEMS = [
     { path: '/reports', icon: HiOutlineChartBar, label: 'Laporan', section: 'tools' },
 ]
 
+const ADMIN_ITEMS = [
+    { path: '/admin/users', icon: HiOutlineUsers, label: 'Manajemen User', section: 'admin' },
+]
+
 export default function Sidebar() {
     const [collapsed, setCollapsed] = useState(false)
-    const { currentUser } = useApp()
+    const { currentUser, isAdmin } = useApp()
     const location = useLocation()
 
     const mainItems = NAV_ITEMS.filter(i => i.section === 'main')
@@ -59,6 +63,22 @@ export default function Sidebar() {
                         <span className="nav-label">{item.label}</span>
                     </NavLink>
                 ))}
+
+                {isAdmin && (
+                    <>
+                        <div className="nav-section-title" style={{ marginTop: '0.5rem' }}>Admin</div>
+                        {ADMIN_ITEMS.map(item => (
+                            <NavLink
+                                key={item.path}
+                                to={item.path}
+                                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                            >
+                                <span className="nav-icon"><item.icon /></span>
+                                <span className="nav-label">{item.label}</span>
+                            </NavLink>
+                        ))}
+                    </>
+                )}
             </nav>
 
             <div className="sidebar-footer">

@@ -1,11 +1,11 @@
-// Tim Penerbitan - 8 Personil
+// Tim Penerbitan - Initial Data
 export const TEAM = [
     {
         id: 'tantawi',
         name: 'Tantawi',
         role: 'Ketua Kelompok Kerja',
         isAdmin: true,
-        skills: ['Admin', 'QC'],
+        skills: ['qc', 'administrasi'],
         avatar: 'TW'
     },
     {
@@ -13,7 +13,7 @@ export const TEAM = [
         name: 'Tazun',
         role: 'Personil',
         isAdmin: false,
-        skills: ['Naskah', 'Administrasi', 'ISBN', 'Distribusi'],
+        skills: ['administrasi', 'isbn', 'distribusi'],
         avatar: 'TZ'
     },
     {
@@ -21,7 +21,7 @@ export const TEAM = [
         name: 'Hafiz',
         role: 'Personil',
         isAdmin: false,
-        skills: ['Naskah', 'Administrasi', 'ISBN', 'Distribusi'],
+        skills: ['administrasi', 'isbn', 'distribusi'],
         avatar: 'HF'
     },
     {
@@ -29,7 +29,7 @@ export const TEAM = [
         name: 'Azizah',
         role: 'Personil',
         isAdmin: false,
-        skills: ['Penyuntingan', 'Keuangan', 'Medsos', 'SK Terbit'],
+        skills: ['editor', 'keuangan', 'konten', 'administrasi'],
         avatar: 'AZ'
     },
     {
@@ -37,7 +37,7 @@ export const TEAM = [
         name: 'Aria',
         role: 'Personil',
         isAdmin: false,
-        skills: ['Penyuntingan', 'Keuangan'],
+        skills: ['editor', 'keuangan'],
         avatar: 'AR'
     },
     {
@@ -45,7 +45,7 @@ export const TEAM = [
         name: 'Novi',
         role: 'Personil',
         isAdmin: false,
-        skills: ['Penyuntingan', 'Tata Letak', 'Desain Sampul'],
+        skills: ['editor', 'layout', 'desain'],
         avatar: 'NV'
     },
     {
@@ -53,7 +53,7 @@ export const TEAM = [
         name: 'Sandi',
         role: 'Personil',
         isAdmin: false,
-        skills: ['Penyuntingan', 'Tata Letak', 'Desain Sampul', 'Medsos'],
+        skills: ['editor', 'layout', 'desain', 'konten'],
         avatar: 'SD'
     },
     {
@@ -61,42 +61,7 @@ export const TEAM = [
         name: 'Damaji',
         role: 'Personil',
         isAdmin: false,
-        skills: ['Tata Letak', 'Desain Sampul', 'QC'],
+        skills: ['layout', 'desain', 'qc'],
         avatar: 'DJ'
     }
 ]
-
-// Mapping skill ke tahapan - digunakan untuk filter PJ
-export const STAGE_SKILL_MAP = {
-    'Kelengkapan Naskah': ['Naskah', 'Administrasi'],
-    'Pembuatan Surat Penerimaan Terbitan': ['Naskah', 'Administrasi'],
-    'Penyuntingan': ['Penyuntingan'],
-    'Tata Letak Naskah': ['Tata Letak'],
-    'Desain Sampul': ['Desain Sampul'],
-    'Kendali Kualitas': ['QC'],
-    'Penerbitan ISBN': ['ISBN'],
-    'Unggah ke Sipena dan Ipusnas': ['Naskah', 'Administrasi'],
-    'Pembuatan Surat Keterangan Terbit': ['SK Terbit', 'Administrasi'],
-    'Serah Terima Karya Cetak dan Rekam': ['Distribusi', 'Administrasi'],
-    // Medsos
-    'Penyusunan Teks': ['Medsos', 'Penyuntingan'],
-    'Perancangan Desain': ['Medsos', 'Desain Sampul'],
-    'Tinjauan Konten': ['Medsos', 'QC'],
-    'Pengunggahan': ['Medsos'],
-    // Keuangan
-    'Dokumen rincian anggaran belanja APBN': ['Keuangan'],
-    'Kerangka Acuan Kerja (KAK) Penerbitan': ['Keuangan'],
-    'Implementasi Kegiatan Penerbitan': ['Keuangan'],
-    'Pertanggungjawaban dan Administrasi Keuangan': ['Keuangan'],
-    'Verifikasi dan Validasi Hasil Kegiatan': ['Keuangan', 'QC'],
-    'Laporan Kinerja dan Evaluasi Kegiatan': ['Keuangan']
-}
-
-// Mendapatkan PJ yang sesuai untuk suatu tahapan
-export function getEligiblePJ(stageName) {
-    const requiredSkills = STAGE_SKILL_MAP[stageName] || []
-    if (requiredSkills.length === 0) return TEAM.filter(m => !m.isAdmin)
-    return TEAM.filter(member =>
-        !member.isAdmin && member.skills.some(s => requiredSkills.includes(s))
-    )
-}

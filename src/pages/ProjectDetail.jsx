@@ -1,18 +1,20 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { TEAM, getEligiblePJ } from '../data/team'
 import { CATEGORIES, STATUS_LABELS } from '../data/categories'
+import { api } from '../services/api'
 
 export default function ProjectDetail() {
     const { id } = useParams()
     const navigate = useNavigate()
-    const { projects, updateProject, updateStage, addNotification, isAdmin, currentUser } = useApp()
+    const { projects, updateProject, deleteProject, updateStage, addStageNote, addNotification, isAdmin, currentUser } = useApp()
 
     const project = projects.find(p => p.id === id)
     const [selectedStageIdx, setSelectedStageIdx] = useState(null)
     const [noteText, setNoteText] = useState('')
-    const [resultLink, setResultLink] = useState('')
+    const [resultLink, setResultLink] = useState(null)
+    const [localProgress, setLocalProgress] = useState(null)
+    const [showReviewConfirm, setShowReviewConfirm] = useState(false)
 
     // QC modal states
     const [showQcModal, setShowQcModal] = useState(false)
@@ -30,8 +32,21 @@ export default function ProjectDetail() {
     const [assignPjId, setAssignPjId] = useState('')
     const [assignDeadline, setAssignDeadline] = useState('')
 
+    // API-driven PJ candidates
+    const [candidates, setCandidates] = useState([])
+    const [candidatesLoading, setCandidatesLoading] = useState(false)
+    const [selectedConflict, setSelectedConflict] = useState(null)
+    // For QC next stage candidates
+    const [nextCandidates, setNextCandidates] = useState([])
+    const [nextCandidatesLoading, setNextCandidatesLoading] = useState(false)
+    const [nextSelectedConflict, setNextSelectedConflict] = useState(null)
+
     // Archive confirm
     const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
+
+    // Delete project confirm
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+    const [isDeleting, setIsDeleting] = useState(false)
     const [archiveStageIdx, setArchiveStageIdx] = useState(null)
 
     if (!project) {
@@ -48,10 +63,17 @@ export default function ProjectDetail() {
     }
 
     const stages = project.stages || []
-    const activeStageIdx = selectedStageIdx !== null ? selectedStageIdx :
-        stages.findIndex(s => s.status === 'active' || s.status === 'review' || s.status === 'revision')
-    const activeStage = activeStageIdx >= 0 ? stages[activeStageIdx] : stages[0]
-    const pj = activeStage?.pjId ? TEAM.find(m => m.id === activeStage.pjId) : null
+    const getCurrentStageIdx = (project) => {
+        if (!project.stages || project.stages.length === 0) return 0
+        const idx = project.stages.findIndex(s =>
+            s.status !== 'done' && s.status !== 'archived'
+        )
+        return idx >= 0 ? idx : project.stages.length - 1
+    }
+    const activeStageIdx = selectedStageIdx !== null ? selectedStageIdx : getCurrentStageIdx(project)
+    const activeStage = stages[activeStageIdx]
+    // PJ lookup: use enriched pj relation from API, with fallback
+    const pj = activeStage?.pjId ? (activeStage.pj ? { id: activeStage.pj.id, name: activeStage.pj.name, avatar: activeStage.pj.avatarInitials || activeStage.pj.name?.substring(0, 2).toUpperCase() } : { id: activeStage.pjId, name: activeStage.pj?.name || 'Tunggu Penugasan...', avatar: '??' }) : null
     const isMyStage = currentUser?.id === activeStage?.pjId
     const catObj = CATEGORIES[project.category]
 
@@ -83,50 +105,51 @@ export default function ProjectDetail() {
         return map[status] || 'badge-draft'
     }
 
-    // PJ: Update progress
+    // PJ: Update progress (local state only — requires save)
     const handleProgress = (progress) => {
-        if (!isMyStage && !isAdmin) return
-        const newStatus = progress > 0 ? 'active' : 'draft'
-        updateStage(project.id, activeStage.id, { progress, status: newStatus })
+        if (!isMyStage) return // only PJ can change
+        if (activeStage.status === 'review') return // locked
+        setLocalProgress(progress)
     }
 
-    // PJ: Mark complete
-    const handleComplete = () => {
-        if (!resultLink && !activeStage.resultLink) {
-            alert('Wajib mengisi Link Hasil Kerja sebelum menandai selesai!')
-            return
-        }
-        updateStage(project.id, activeStage.id, {
-            resultLink: resultLink || activeStage.resultLink,
-            status: 'active',
-            progress: 100
-        })
+    // PJ: Save progress to backend
+    const handleSaveProgress = () => {
+        if (localProgress === null) return
+        const newStatus = localProgress > 0 ? 'active' : 'draft'
+        updateStage(activeStage.id, { progress: localProgress, status: newStatus })
+        setLocalProgress(null)
     }
 
-    // PJ: Submit for review
+    // PJ: Submit for review (with confirmation)
     const handleSubmitReview = () => {
-        if (activeStage.progress < 100) {
-            alert('Progres harus 100% sebelum mengajukan review!')
+        if (!resultLink && !activeStage.resultLink) {
+            alert('Wajib mengisi Link Hasil Kerja sebelum mengajukan review!')
             return
         }
-        updateStage(project.id, activeStage.id, { status: 'review' })
+        updateStage(activeStage.id, {
+            status: 'review',
+            progress: 100,
+            resultLink: resultLink || activeStage.resultLink
+        })
         addNotification({
             type: 'review',
             title: 'Ajukan Review',
             message: `${currentUser.name} mengajukan review untuk tahap "${activeStage.label}" di proyek "${project.title}".`,
             projectId: project.id
         })
+        setShowReviewConfirm(false)
+        setLocalProgress(null)
     }
 
     // Admin: QC Approve
     const handleApprove = () => {
-        updateStage(project.id, activeStage.id, { status: 'done' })
+        updateStage(activeStage.id, { status: 'done' })
 
         // If next stage selected, activate it
         if (nextStageIdx !== '' && stages[parseInt(nextStageIdx)]) {
             const nextStage = stages[parseInt(nextStageIdx)]
             const pjId = project.singlePJ ? activeStage.pjId : nextPjId
-            updateStage(project.id, nextStage.id, {
+            updateStage(nextStage.id, {
                 status: 'draft',
                 pjId: pjId,
                 deadline: nextDeadline
@@ -147,19 +170,21 @@ export default function ProjectDetail() {
     }
 
     // Admin: QC Revise
-    const handleRevise = () => {
+    const handleRevise = async () => {
         if (!revisionNote.trim()) {
             alert('Wajib mengisi catatan revisi!')
             return
         }
-        updateStage(project.id, activeStage.id, {
+        // First add the revision note via addNote API
+        await addStageNote(activeStage.id, {
+            from: currentUser.name,
+            text: `[REVISI] ${revisionNote}`,
+            time: new Date().toISOString()
+        })
+        // Then update status
+        updateStage(activeStage.id, {
             status: 'revision',
-            progress: 25,
-            notes: [...(activeStage.notes || []), {
-                from: 'Tantawi',
-                text: `[REVISI] ${revisionNote}`,
-                time: new Date().toISOString()
-            }]
+            progress: 25
         })
         addNotification({
             type: 'revision',
@@ -171,36 +196,102 @@ export default function ProjectDetail() {
         setRevisionNote('')
     }
 
-    // Send note
-    const handleSendNote = () => {
+    // Save result link independently
+    const handleSaveResultLink = async () => {
+        if (!resultLink) return
+        await updateStage(activeStage.id, { resultLink })
+        setResultLink(null) // reset to null so saved link shows as clickable
+    }
+
+    // Send note via dedicated addNote API
+    const handleSendNote = async () => {
         if (!noteText.trim()) return
-        const updatedNotes = [...(activeStage.notes || []), {
-            from: currentUser.name,
-            text: noteText,
-            time: new Date().toISOString()
-        }]
-        updateStage(project.id, activeStage.id, { notes: updatedNotes })
-        setNoteText('')
+        try {
+            await addStageNote(activeStage.id, {
+                from: currentUser.name,
+                text: noteText,
+                time: new Date().toISOString()
+            })
+            setNoteText('')
+        } catch (e) {
+            console.error('Failed to send note:', e)
+            alert('Gagal mengirim catatan. Coba lagi.')
+        }
+    }
+
+    // Fetch candidates from API for a stage
+    const fetchCandidates = useCallback(async (stageId, setter, loadingSetter) => {
+        loadingSetter(true)
+        try {
+            const data = await api.stages.getCandidates(stageId)
+            setter(data.candidates || [])
+        } catch (e) {
+            console.error('Failed to fetch candidates:', e)
+            setter([])
+        } finally {
+            loadingSetter(false)
+        }
+    }, [])
+
+    // Open assign modal → fetch candidates
+    const openAssignModal = (idx) => {
+        setAssignStageIdx(idx)
+        setAssignPjId('')
+        setAssignDeadline('')
+        setSelectedConflict(null)
+        setCandidates([])
+        setShowAssignModal(true)
+        const stage = stages[idx]
+        if (stage?.id) {
+            fetchCandidates(stage.id, setCandidates, setCandidatesLoading)
+        }
+    }
+
+    // Handle PJ selection in assign modal → show conflict if any
+    const handleAssignPjSelect = (pjId) => {
+        setAssignPjId(pjId)
+        const candidate = candidates.find(c => c.id === pjId)
+        setSelectedConflict(candidate?.conflict ? candidate : null)
+    }
+
+    // Handle PJ selection in QC next stage → show conflict if any  
+    const handleNextPjSelect = (pjId) => {
+        setNextPjId(pjId)
+        const candidate = nextCandidates.find(c => c.id === pjId)
+        setNextSelectedConflict(candidate?.conflict ? candidate : null)
     }
 
     // Admin: assign pending stage
     const handleAssignStage = () => {
         if (!assignPjId) return
         const stage = stages[assignStageIdx]
-        updateStage(project.id, stage.id, {
+        updateStage(stage.id, {
             pjId: assignPjId,
             deadline: assignDeadline
         })
         setShowAssignModal(false)
         setAssignPjId('')
         setAssignDeadline('')
+        setSelectedConflict(null)
     }
 
     // Archive stage
     const handleArchive = () => {
         const stage = stages[archiveStageIdx]
-        updateStage(project.id, stage.id, { status: 'archived' })
+        updateStage(stage.id, { status: 'archived' })
         setShowArchiveConfirm(false)
+    }
+
+    // Delete project handler
+    const handleDeleteProject = async () => {
+        setIsDeleting(true)
+        try {
+            await deleteProject(project.id)
+            navigate('/projects')
+        } catch (e) {
+            alert('Gagal menghapus proyek. Coba lagi.')
+            setIsDeleting(false)
+        }
     }
 
     // Pending stages for next selection
@@ -224,9 +315,11 @@ export default function ProjectDetail() {
                             <span style={{ fontFamily: 'monospace' }}>{project.id}</span>
                             <span>•</span>
                             <span>{project.categoryLabel} — {project.typeLabel}</span>
+                            <span>•</span>
+                            <span>📅 Dibuat: {project.createdAt ? new Date(project.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}</span>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                         {project.gdriveLink && (
                             <a href={project.gdriveLink} target="_blank" rel="noopener noreferrer" className="btn btn-outline btn-sm">
                                 📂 Folder GDrive
@@ -237,6 +330,15 @@ export default function ProjectDetail() {
                                 📘 Pedoman Kerja
                             </a>
                         )}
+                        {isAdmin && (
+                            <button
+                                className="btn btn-danger btn-sm"
+                                onClick={() => setShowDeleteConfirm(true)}
+                                title="Hapus proyek ini"
+                            >
+                                🗑️ Hapus Proyek
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -245,10 +347,10 @@ export default function ProjectDetail() {
             <div className="detail-grid">
                 {/* Left: Pipeline */}
                 <div className="card">
-                    <div className="card-title" style={{ marginBottom: '0.75rem' }}>Pipeline Tahapan</div>
+                    <div className="card-title" style={{ marginBottom: '0.75rem' }}>Timeline Tahapan</div>
                     <div className="pipeline">
                         {stages.map((stage, idx) => {
-                            const stagePJ = stage.pjId ? TEAM.find(m => m.id === stage.pjId) : null
+                            const stagePJ = stage.pj || null
                             const overdue = isOverdue(stage)
 
                             return (
@@ -271,25 +373,49 @@ export default function ProjectDetail() {
                                             {overdue && '⚠️ '}{stage.label}
                                         </div>
                                         <div className="stage-meta">
-                                            {stagePJ ? `PJ: ${stagePJ.name}` : 'Belum ditugaskan'}
+                                            {stage.pj ? `PJ: ${stage.pj.name}` : (stage.pjId ? 'PJ: Personil Terpilih' : 'Belum ditugaskan')}
                                             {stage.deadline ? ` • ${formatDate(stage.deadline)}` : ''}
                                         </div>
-                                        {/* Admin: click to assign pending stages */}
-                                        {isAdmin && stage.status === 'draft' && !stage.pjId && (
+                                        {/* Clickable result link */}
+                                        {stage.resultLink && (
+                                            <a
+                                                href={stage.resultLink}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{ fontSize: '0.7rem', color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.125rem' }}
+                                            >
+                                                📂 Hasil Kerja ↗
+                                            </a>
+                                        )}
+                                        {/* Admin: click to assign/reassign stages without PJ */}
+                                        {isAdmin && !stage.pjId && stage.status !== 'done' && stage.status !== 'archived' && (
                                             <button
                                                 className="btn btn-ghost btn-sm"
                                                 style={{ marginTop: '0.25rem', fontSize: '0.7rem' }}
                                                 onClick={(e) => {
                                                     e.stopPropagation()
-                                                    setAssignStageIdx(idx)
-                                                    setShowAssignModal(true)
+                                                    openAssignModal(idx)
                                                 }}
                                             >
                                                 + Assign PJ & Deadline
                                             </button>
                                         )}
-                                        {/* Archive button for done stages */}
-                                        {isAdmin && stage.status === 'done' && (
+                                        {/* Admin: reassign PJ on active stages */}
+                                        {isAdmin && stage.pjId && stage.status !== 'done' && stage.status !== 'archived' && (
+                                            <button
+                                                className="btn btn-ghost btn-sm"
+                                                style={{ marginTop: '0.25rem', fontSize: '0.7rem', color: 'var(--primary)' }}
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    openAssignModal(idx)
+                                                }}
+                                            >
+                                                ✏️ Ubah PJ / Deadline
+                                            </button>
+                                        )}
+                                        {/* Archive button for done stages — visible to all roles */}
+                                        {stage.status === 'done' && (
                                             <button
                                                 className="btn btn-ghost btn-sm"
                                                 style={{ marginTop: '0.25rem', fontSize: '0.7rem', color: 'var(--success)' }}
@@ -358,73 +484,174 @@ export default function ProjectDetail() {
                             {activeStage.status !== 'done' && activeStage.status !== 'archived' && (
                                 <div style={{ marginBottom: '1rem' }}>
                                     <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 600, marginBottom: '0.375rem' }}>PROGRES</div>
-                                    <div className="progress-steps">
-                                        {[0, 25, 50, 75, 100].map(val => (
-                                            <button
-                                                key={val}
-                                                className={`progress-step ${activeStage.progress >= val ? 'filled' : ''} ${activeStage.progress === val ? 'current' : ''}`}
-                                                onClick={() => (isMyStage || isAdmin) && handleProgress(val)}
-                                                disabled={!isMyStage && !isAdmin}
-                                            >
-                                                {val}%
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Link Hasil Kerja */}
-                            {activeStage.status !== 'done' && activeStage.status !== 'archived' && (isMyStage || isAdmin) && (
-                                <div className="form-group">
-                                    <label className="form-label">Link Hasil Kerja</label>
-                                    <div className="input-with-icon">
-                                        <input
-                                            type="url"
-                                            value={resultLink || activeStage.resultLink || ''}
-                                            onChange={e => setResultLink(e.target.value)}
-                                            placeholder="https://docs.google.com/..."
-                                        />
-                                        {(resultLink || activeStage.resultLink) && (
-                                            <span className={`input-icon ${(() => {
-                                                try { new URL(resultLink || activeStage.resultLink); return 'valid' } catch { return 'invalid' }
-                                            })()}`}>
-                                                {(() => { try { new URL(resultLink || activeStage.resultLink); return '✓' } catch { return '✗' } })()}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Display result link for completed stages */}
-                            {(activeStage.status === 'done' || activeStage.status === 'archived') && activeStage.resultLink && (
-                                <div style={{ marginBottom: '1rem' }}>
-                                    <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 600 }}>HASIL KERJA</div>
-                                    <a href={activeStage.resultLink} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.8rem' }}>
-                                        {activeStage.resultLink} ↗
-                                    </a>
-                                </div>
-                            )}
-
-                            {/* PJ Actions */}
-                            {isMyStage && activeStage.status !== 'done' && activeStage.status !== 'archived' && activeStage.status !== 'review' && (
-                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                    <button className="btn btn-success btn-sm" onClick={handleComplete}>
-                                        ✅ Tandai Selesai
-                                    </button>
-                                    {activeStage.progress >= 100 && (
-                                        <button className="btn btn-warning btn-sm" onClick={handleSubmitReview}>
-                                            📤 Ajukan Review
-                                        </button>
+                                    {isAdmin && !isMyStage ? (
+                                        /* Admin: read-only progress display */
+                                        <div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <div style={{ flex: 1, height: '8px', background: 'var(--surface-hover)', borderRadius: '4px', overflow: 'hidden' }}>
+                                                    <div style={{ width: `${activeStage.progress || 0}%`, height: '100%', background: 'var(--primary)', borderRadius: '4px', transition: 'width 0.3s' }} />
+                                                </div>
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 600, minWidth: '40px' }}>{activeStage.progress || 0}%</span>
+                                            </div>
+                                            {activeStage.status === 'review' && (
+                                                <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--warning)', fontWeight: 600 }}>
+                                                    🔒 Menunggu review admin
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        /* PJ: interactive progress buttons */
+                                        <>
+                                            <div className="progress-steps">
+                                                {[0, 25, 50, 75, 100].map(val => {
+                                                    const displayProgress = localProgress !== null ? localProgress : activeStage.progress
+                                                    const isLocked = activeStage.status === 'review'
+                                                    return (
+                                                        <button
+                                                            key={val}
+                                                            className={`progress-step ${displayProgress >= val ? 'filled' : ''} ${displayProgress === val ? 'current' : ''}`}
+                                                            onClick={() => handleProgress(val)}
+                                                            disabled={!isMyStage || isLocked}
+                                                        >
+                                                            {val}%
+                                                        </button>
+                                                    )
+                                                })}
+                                            </div>
+                                            {/* Save Progress Button */}
+                                            {localProgress !== null && localProgress !== activeStage.progress && (
+                                                <button
+                                                    className="btn btn-primary btn-sm"
+                                                    style={{ marginTop: '0.5rem' }}
+                                                    onClick={handleSaveProgress}
+                                                >
+                                                    💾 Simpan Progress
+                                                </button>
+                                            )}
+                                            {/* Submit Review Button */}
+                                            {(localProgress === 100 || activeStage.progress === 100) && activeStage.status !== 'review' && isMyStage && (
+                                                <button
+                                                    className="btn btn-warning btn-sm"
+                                                    style={{ marginTop: '0.5rem', marginLeft: '0.5rem' }}
+                                                    onClick={() => setShowReviewConfirm(true)}
+                                                >
+                                                    📤 Ajukan Review
+                                                </button>
+                                            )}
+                                            {activeStage.status === 'review' && (
+                                                <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--warning)', fontWeight: 600 }}>
+                                                    🔒 Progress terkunci — sedang menunggu review admin
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             )}
 
-                            {/* PJ: Submit review if progress is 100 and status is active */}
-                            {isMyStage && activeStage.status === 'active' && activeStage.progress >= 100 && (
-                                <div style={{ marginTop: '0.5rem' }}>
-                                    <button className="btn btn-warning" onClick={handleSubmitReview}>
-                                        📤 Ajukan Review ke Admin
-                                    </button>
+                            {/* Folder Pekerjaan: from previous stage's resultLink or project-level GDrive */}
+                            {(() => {
+                                const prevStage = stages.find(s => s.order === activeStage.order - 1)
+                                const folderLink = prevStage?.resultLink || project.gdriveLink
+                                if (!folderLink) return null
+                                return (
+                                    <div style={{ marginBottom: '1rem' }}>
+                                        <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 600 }}>FOLDER PEKERJAAN</div>
+                                        <a href={folderLink} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>
+                                            📂 {prevStage?.resultLink ? `Hasil Tahap "${prevStage.label}"` : 'Folder GDrive'} ↗
+                                        </a>
+                                    </div>
+                                )
+                            })()}
+
+                            {/* Link Hasil Kerja */}
+                            {activeStage.status !== 'done' && activeStage.status !== 'archived' && (
+                                <div className="form-group">
+                                    <label className="form-label">Link Hasil Kerja</label>
+                                    {isMyStage ? (
+                                        /* PJ: editable input */
+                                        <>
+                                            <div className="input-with-icon">
+                                                <input
+                                                    type="url"
+                                                    value={resultLink !== null ? resultLink : (activeStage.resultLink || '')}
+                                                    onChange={e => setResultLink(e.target.value)}
+                                                    placeholder="https://docs.google.com/..."
+                                                />
+                                                {(resultLink || activeStage.resultLink) && (
+                                                    <span className={`input-icon ${(() => {
+                                                        const val = resultLink !== null ? resultLink : activeStage.resultLink
+                                                        try { new URL(val); return 'valid' } catch { return 'invalid' }
+                                                    })()}`}>
+                                                        {(() => { const val = resultLink !== null ? resultLink : activeStage.resultLink; try { new URL(val); return '✓' } catch { return '✗' } })()}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {/* Save result link button */}
+                                            {resultLink !== null && resultLink !== (activeStage.resultLink || '') && resultLink !== '' && (
+                                                <button
+                                                    className="btn btn-primary btn-sm"
+                                                    style={{ marginTop: '0.5rem' }}
+                                                    onClick={handleSaveResultLink}
+                                                >
+                                                    💾 Simpan Link
+                                                </button>
+                                            )}
+                                            {/* Show saved link as clickable */}
+                                            {activeStage.resultLink && (resultLink === null || resultLink === '' || resultLink === activeStage.resultLink) && (
+                                                <a
+                                                    href={activeStage.resultLink}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--primary)' }}
+                                                >
+                                                    🔗 Buka Hasil Kerja ↗
+                                                </a>
+                                            )}
+                                        </>
+                                    ) : (
+                                        /* Admin: read-only clickable link */
+                                        activeStage.resultLink ? (
+                                            <a
+                                                href={activeStage.resultLink}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8rem', color: 'var(--primary)' }}
+                                            >
+                                                🔗 {activeStage.resultLink} ↗
+                                            </a>
+                                        ) : (
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Belum ada link hasil kerja</div>
+                                        )
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Display result link for completed/archived stages (read-only) */}
+                            {(activeStage.status === 'done' || activeStage.status === 'archived') && activeStage.resultLink && (
+                                <div style={{ marginBottom: '1rem' }}>
+                                    <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 600 }}>HASIL KERJA</div>
+                                    <a href={activeStage.resultLink} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.8rem' }}>
+                                        🔗 {activeStage.resultLink} ↗
+                                    </a>
+                                </div>
+                            )}
+
+                            {/* Review Confirmation Modal */}
+                            {showReviewConfirm && (
+                                <div className="modal-overlay" onClick={() => setShowReviewConfirm(false)}>
+                                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+                                        <div className="modal-header">
+                                            <div className="card-title">📤 Konfirmasi Review</div>
+                                        </div>
+                                        <div style={{ padding: '1rem', fontSize: '0.85rem' }}>
+                                            <p>Apakah Anda yakin mengajukan review untuk tahap <strong>"{activeStage.label}"</strong>?</p>
+                                            <p style={{ color: 'var(--warning)', fontWeight: 600, fontSize: '0.8rem' }}>⚠️ Progress tidak bisa diubah setelah review diajukan.</p>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', padding: '0 1rem 1rem' }}>
+                                            <button className="btn btn-ghost" onClick={() => setShowReviewConfirm(false)}>Batal</button>
+                                            <button className="btn btn-warning" onClick={handleSubmitReview}>Ya, Ajukan Review</button>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -505,7 +732,19 @@ export default function ProjectDetail() {
                                 <>
                                     <div className="form-group">
                                         <label className="form-label">Tahap Berikutnya</label>
-                                        <select value={nextStageIdx} onChange={e => setNextStageIdx(e.target.value)}>
+                                        <select value={nextStageIdx} onChange={e => {
+                                            setNextStageIdx(e.target.value)
+                                            setNextPjId('')
+                                            setNextSelectedConflict(null)
+                                            // Fetch candidates for the selected next stage
+                                            const stgIdx = parseInt(e.target.value)
+                                            const stg = stages[stgIdx]
+                                            if (stg?.id) {
+                                                fetchCandidates(stg.id, setNextCandidates, setNextCandidatesLoading)
+                                            } else {
+                                                setNextCandidates([])
+                                            }
+                                        }}>
                                             <option value="">— Tidak ada (selesai semua) —</option>
                                             {pendingStages.map(s => (
                                                 <option key={s.idx} value={s.idx}>
@@ -518,16 +757,30 @@ export default function ProjectDetail() {
                                         <>
                                             <div className="form-group">
                                                 <label className="form-label">PJ Tahap Berikutnya</label>
-                                                <select value={nextPjId} onChange={e => setNextPjId(e.target.value)}>
-                                                    <option value="">Pilih PJ</option>
-                                                    {(() => {
-                                                        const stg = stages[parseInt(nextStageIdx)]
-                                                        return stg ? getEligiblePJ(stg.label).map(m => (
-                                                            <option key={m.id} value={m.id}>{m.name}</option>
-                                                        )) : null
-                                                    })()}
-                                                </select>
+                                                {nextCandidatesLoading ? (
+                                                    <div style={{ padding: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Memuat kandidat...</div>
+                                                ) : (
+                                                    <select value={nextPjId} onChange={e => handleNextPjSelect(e.target.value)}>
+                                                        <option value="">Pilih PJ</option>
+                                                        {nextCandidates.map(c => (
+                                                            <option key={c.id} value={c.id}>
+                                                                {c.name}{c.conflict ? ' ⚠️' : ''}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                )}
                                             </div>
+                                            {nextSelectedConflict && (
+                                                <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 'var(--radius)', fontSize: '0.78rem', color: '#b45309', marginTop: '0.25rem' }}>
+                                                    <strong>⚠️ Konflik:</strong> {nextSelectedConflict.name} sedang mengerjakan:
+                                                    <ul style={{ margin: '0.25rem 0 0', paddingLeft: '1.25rem' }}>
+                                                        {nextSelectedConflict.conflictStages?.map((cs, i) => (
+                                                            <li key={i}>{cs.stageLabel} — {cs.projectTitle}</li>
+                                                        ))}
+                                                    </ul>
+                                                    <div style={{ marginTop: '0.25rem', fontStyle: 'italic' }}>Anda tetap bisa assign (override).</div>
+                                                </div>
+                                            )}
                                             <div className="form-group">
                                                 <label className="form-label">Deadline</label>
                                                 <input type="date" value={nextDeadline} onChange={e => setNextDeadline(e.target.value)} />
@@ -538,7 +791,7 @@ export default function ProjectDetail() {
                                         <div className="form-group">
                                             <label className="form-label">Deadline</label>
                                             <input type="date" value={nextDeadline} onChange={e => setNextDeadline(e.target.value)} />
-                                            <div className="form-hint">PJ tetap: {TEAM.find(m => m.id === activeStage.pjId)?.name || '—'}</div>
+                                            <div className="form-hint">PJ tetap: {activeStage.pj?.name || '—'}</div>
                                         </div>
                                     )}
                                 </>
@@ -583,13 +836,34 @@ export default function ProjectDetail() {
                             </p>
                             <div className="form-group">
                                 <label className="form-label">Penanggung Jawab</label>
-                                <select value={assignPjId} onChange={e => setAssignPjId(e.target.value)}>
-                                    <option value="">Pilih PJ</option>
-                                    {getEligiblePJ(stages[assignStageIdx]?.label || '').map(m => (
-                                        <option key={m.id} value={m.id}>{m.name} ({m.skills.join(', ')})</option>
-                                    ))}
-                                </select>
+                                {candidatesLoading ? (
+                                    <div style={{ padding: '0.5rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Memuat kandidat berdasarkan skill...</div>
+                                ) : candidates.length === 0 ? (
+                                    <div style={{ padding: '0.5rem', color: 'var(--danger)', fontSize: '0.8rem' }}>Tidak ada kandidat dengan skill yang sesuai.</div>
+                                ) : (
+                                    <select value={assignPjId} onChange={e => handleAssignPjSelect(e.target.value)}>
+                                        <option value="">Pilih PJ ({candidates.length} kandidat)</option>
+                                        {candidates.map(c => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name}{c.conflict ? ' ⚠️ Konflik' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
+                            {selectedConflict && (
+                                <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 'var(--radius)', fontSize: '0.78rem', color: '#b45309', marginBottom: '0.75rem' }}>
+                                    <strong>⚠️ Peringatan Konflik:</strong> <strong>{selectedConflict.name}</strong> sedang mengerjakan tahap aktif di proyek lain:
+                                    <ul style={{ margin: '0.25rem 0 0', paddingLeft: '1.25rem' }}>
+                                        {selectedConflict.conflictStages?.map((cs, i) => (
+                                            <li key={i}>
+                                                <strong>{cs.stageLabel}</strong> — {cs.projectTitle} <span className={`badge badge-${cs.status === 'active' ? 'active' : 'draft'}`} style={{ fontSize: '0.65rem' }}>{cs.status}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <div style={{ marginTop: '0.35rem', fontStyle: 'italic', fontSize: '0.72rem' }}>Anda tetap bisa meng-assign (override). Klik "Simpan" untuk melanjutkan.</div>
+                                </div>
+                            )}
                             <div className="form-group">
                                 <label className="form-label">Deadline</label>
                                 <input type="date" value={assignDeadline} onChange={e => setAssignDeadline(e.target.value)} />
@@ -597,7 +871,9 @@ export default function ProjectDetail() {
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-outline" onClick={() => setShowAssignModal(false)}>Batal</button>
-                            <button className="btn btn-primary" onClick={handleAssignStage}>Simpan</button>
+                            <button className="btn btn-primary" onClick={handleAssignStage} disabled={!assignPjId}>
+                                {selectedConflict ? '⚠️ Override & Simpan' : 'Simpan'}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -618,6 +894,37 @@ export default function ProjectDetail() {
                         <div className="modal-footer">
                             <button className="btn btn-outline" onClick={() => setShowArchiveConfirm(false)}>Tidak</button>
                             <button className="btn btn-success" onClick={handleArchive}>Ya, Arsipkan</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Delete Project Confirm Modal */}
+            {showDeleteConfirm && (
+                <div className="modal-overlay" onClick={() => !isDeleting && setShowDeleteConfirm(false)}>
+                    <div className="modal" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2>🗑️ Hapus Proyek</h2>
+                            <button className="modal-close" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>✕</button>
+                        </div>
+                        <div className="modal-body" style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}>⚠️</div>
+                            <p style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.5rem' }}>
+                                Hapus proyek <strong>"{project.title}"</strong>?
+                            </p>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+                                ID: <code style={{ fontFamily: 'monospace' }}>{project.id}</code>
+                            </p>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--danger)', marginTop: '0.75rem', padding: '0.5rem', background: 'var(--danger-bg, rgba(239,68,68,0.08))', borderRadius: 'var(--radius)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                ⚠️ Tindakan ini <strong>tidak bisa dibatalkan</strong>. Semua tahap dan data dalam proyek ini akan dihapus permanen.
+                            </p>
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-outline" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>
+                                Batal
+                            </button>
+                            <button className="btn btn-danger" onClick={handleDeleteProject} disabled={isDeleting}>
+                                {isDeleting ? 'Menghapus...' : '🗑️ Ya, Hapus Permanen'}
+                            </button>
                         </div>
                     </div>
                 </div>

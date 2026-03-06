@@ -3,31 +3,41 @@ import { useApp } from '../context/AppContext'
 import { HiOutlinePlus, HiOutlineEye, HiOutlineArrowDownTray, HiOutlineTrash } from 'react-icons/hi2'
 
 export default function Documents() {
-    const { documents, addDocument, deleteDocument, isAdmin } = useApp()
+    const { documents, addDocument, deleteDocument, isAdmin, currentUser } = useApp()
     const [showUpload, setShowUpload] = useState(false)
     const [docName, setDocName] = useState('')
     const [docUrl, setDocUrl] = useState('')
+    const [isSubmitting, setIsSubmitting] = useState(false)
     const fileInputRef = useRef(null)
 
-    const handleUpload = (e) => {
+    const handleUpload = async (e) => {
         e.preventDefault()
         if (!docName.trim()) return
 
-        // Since we can't store actual files in localStorage, we use URL links
-        addDocument({
-            name: docName,
-            url: docUrl,
-            type: 'pdf'
-        })
-
-        setDocName('')
-        setDocUrl('')
-        setShowUpload(false)
+        setIsSubmitting(true)
+        try {
+            await addDocument({
+                name: docName,
+                url: docUrl || '',
+                type: 'pdf'
+            })
+            setDocName('')
+            setDocUrl('')
+            setShowUpload(false)
+        } catch (err) {
+            alert('Gagal menyimpan dokumen: ' + err.message)
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
-    const handleDelete = (docId) => {
+    const handleDelete = async (docId) => {
         if (window.confirm('Hapus dokumen ini?')) {
-            deleteDocument(docId)
+            try {
+                await deleteDocument(docId)
+            } catch (err) {
+                alert('Gagal menghapus dokumen: ' + err.message)
+            }
         }
     }
 
@@ -71,7 +81,7 @@ export default function Documents() {
                             <div className="doc-info">
                                 <div className="doc-name">{doc.name}</div>
                                 <div className="doc-meta">
-                                    Diunggah: {formatDate(doc.uploadedAt)} • Oleh: {doc.uploadedBy}
+                                    Diunggah: {formatDate(doc.createdAt)}
                                 </div>
                             </div>
                             <div className="doc-actions">

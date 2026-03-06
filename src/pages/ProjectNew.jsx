@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { CATEGORIES } from '../data/categories'
-import { TEAM, getEligiblePJ } from '../data/team'
+import { api } from '../services/api'
 
 export default function ProjectNew() {
     const { addProject } = useApp()
@@ -23,9 +23,52 @@ export default function ProjectNew() {
     // Stage assignments (PJ, deadline)
     const [stageAssignments, setStageAssignments] = useState({})
 
+    // API Candidates storage
+    const [candidatesMap, setCandidatesMap] = useState({})
+    const [loadingCandidates, setLoadingCandidates] = useState(false)
+
     const selectedCategory = category ? CATEGORIES[category] : null
-    const stages = selectedCategory?.stages || []
     const types = selectedCategory?.types || []
+
+    // Type-specific stage overrides (matches backend)
+    const TYPE_STAGES = {
+        terjemahan: [
+            { id: 'terjemahkan', label: "Terjemahkan", order: 1 },
+            { id: 'penyuntingan-terjemahan', label: "Penyuntingan Naskah Terjemahan", order: 2 },
+        ],
+    };
+
+    const stages = TYPE_STAGES[projectType] || selectedCategory?.stages || []
+
+    // Fetch candidates for current stages
+    useEffect(() => {
+        const fetchAllCandidates = async () => {
+            if (!category) return;
+
+            setLoadingCandidates(true);
+            const newMap = { ...candidatesMap };
+            let hasNew = false;
+
+            const stagesToFetch = category === 'lainnya' ? customStages : stages;
+
+            for (const stage of stagesToFetch) {
+                if (stage.label && !newMap[stage.label]) {
+                    try {
+                        const result = await api.stages.getCandidatesByLabel(stage.label);
+                        newMap[stage.label] = result.candidates;
+                        hasNew = true;
+                    } catch (err) {
+                        console.error(`Failed to fetch candidates for ${stage.label}:`, err);
+                    }
+                }
+            }
+
+            if (hasNew) setCandidatesMap(newMap);
+            setLoadingCandidates(false);
+        };
+
+        fetchAllCandidates();
+    }, [category, projectType, customStages]);
 
     const handleCategoryChange = (e) => {
         const cat = e.target.value
@@ -180,7 +223,11 @@ export default function ProjectNew() {
                             ) : (
                                 <select
                                     value={projectType}
-                                    onChange={e => setProjectType(e.target.value)}
+                                    onChange={e => {
+                                        setProjectType(e.target.value)
+                                        setStageAssignments({})
+                                        setStartFromStage(0)
+                                    }}
                                     required
                                     disabled={!category}
                                 >
@@ -250,7 +297,7 @@ export default function ProjectNew() {
                                     const isFirst = idx === startFromStage
                                     const isSinglePJ = selectedCategory?.singlePJ
                                     const showAssignment = isFirst || (isSinglePJ && idx === startFromStage)
-                                    const eligiblePJ = getEligiblePJ(stage.label)
+                                    const eligiblePJ = candidatesMap[stage.label] || []
 
                                     return (
                                         <div key={stage.id} className="pipeline-stage" style={{ opacity: isSkipped ? 0.4 : 1 }}>
@@ -271,9 +318,16 @@ export default function ProjectNew() {
                                                             >
                                                                 <option value="">Pilih PJ</option>
                                                                 {eligiblePJ.map(m => (
-                                                                    <option key={m.id} value={m.id}>{m.name} ({m.skills.join(', ')})</option>
+                                                                    <option key={m.id} value={m.id}>
+                                                                        {m.name}{m.conflict ? ' ⚠️' : ''}
+                                                                    </option>
                                                                 ))}
                                                             </select>
+                                                            {stageAssignments[idx]?.pjId && eligiblePJ.find(p => p.id === stageAssignments[idx].pjId)?.conflict && (
+                                                                <div className="form-hint" style={{ color: 'var(--danger)', fontSize: '0.75rem' }}>
+                                                                    Peringatan: Personil ini memiliki tugas aktif lain.
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div className="form-group" style={{ marginBottom: 0 }}>
                                                             <label className="form-label">Deadline</label>
@@ -299,44 +353,52 @@ export default function ProjectNew() {
                         {/* Lainnya: custom stages */}
                         {category === 'lainnya' && (
                             <div>
-                                {customStages.map((stage, idx) => (
-                                    <div key={stage.id} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
-                                        <div style={{ flex: 1 }}>
-                                            <label className="form-label">Tahap {idx + 1}</label>
-                                            <input
-                                                type="text"
-                                                value={stage.label}
-                                                onChange={e => updateCustomStage(idx, e.target.value)}
-                                                placeholder={`Nama tahap ${idx + 1}...`}
-                                            />
+                                {customStages.map((stage, idx) => {
+                                    const eligiblePJ = candidatesMap[stage.label] || []
+                                    return (
+                                        <div key={stage.id} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <label className="form-label">Tahap {idx + 1}</label>
+                                                <input
+                                                    type="text"
+                                                    value={stage.label}
+                                                    onChange={e => updateCustomStage(idx, e.target.value)}
+                                                    placeholder={`Nama tahap ${idx + 1}...`}
+                                                />
+                                            </div>
+                                            <div style={{ width: '200px' }}>
+                                                <label className="form-label">PJ</label>
+                                                <select
+                                                    value={stageAssignments[idx]?.pjId || ''}
+                                                    onChange={e => updateStageAssignment(idx, 'pjId', e.target.value)}
+                                                >
+                                                    <option value="">Pilih PJ</option>
+                                                    {eligiblePJ.map(m => (
+                                                        <option key={m.id} value={m.id}>
+                                                            {m.name}{m.conflict ? ' ⚠️' : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                {stageAssignments[idx]?.pjId && eligiblePJ.find(p => p.id === stageAssignments[idx].pjId)?.conflict && (
+                                                    <div style={{ color: 'var(--danger)', fontSize: '0.7rem' }}>Beban tinggi ⚠️</div>
+                                                )}
+                                            </div>
+                                            <div style={{ width: '160px' }}>
+                                                <label className="form-label">Deadline</label>
+                                                <input
+                                                    type="date"
+                                                    value={stageAssignments[idx]?.deadline || ''}
+                                                    onChange={e => updateStageAssignment(idx, 'deadline', e.target.value)}
+                                                />
+                                            </div>
+                                            {customStages.length > 1 && (
+                                                <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeCustomStage(idx)} style={{ color: 'var(--danger)' }}>
+                                                    ✕
+                                                </button>
+                                            )}
                                         </div>
-                                        <div style={{ width: '160px' }}>
-                                            <label className="form-label">PJ</label>
-                                            <select
-                                                value={stageAssignments[idx]?.pjId || ''}
-                                                onChange={e => updateStageAssignment(idx, 'pjId', e.target.value)}
-                                            >
-                                                <option value="">Pilih PJ</option>
-                                                {TEAM.filter(m => !m.isAdmin).map(m => (
-                                                    <option key={m.id} value={m.id}>{m.name}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div style={{ width: '160px' }}>
-                                            <label className="form-label">Deadline</label>
-                                            <input
-                                                type="date"
-                                                value={stageAssignments[idx]?.deadline || ''}
-                                                onChange={e => updateStageAssignment(idx, 'deadline', e.target.value)}
-                                            />
-                                        </div>
-                                        {customStages.length > 1 && (
-                                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeCustomStage(idx)} style={{ color: 'var(--danger)' }}>
-                                                ✕
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
+                                    )
+                                })}
                                 <button type="button" className="btn btn-outline btn-sm" onClick={addCustomStage}>
                                     + Tambah Tahap
                                 </button>

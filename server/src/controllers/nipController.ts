@@ -20,6 +20,7 @@ export const NipController = {
                 date: z.string(),
                 sourceCode: z.string(),
                 formatCode: z.string(),
+                title: z.string().min(1, "Judul buku wajib diisi"),
             });
 
             const data = schema.parse(req.body);

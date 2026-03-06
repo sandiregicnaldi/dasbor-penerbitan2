@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useApp } from '../context/AppContext'
+import { api } from '../services/api'
 import { DDC_CODES, SOURCE_KEGIATAN, FORMAT_BUKU } from '../data/ddc'
+import { utils, writeFile } from 'xlsx'
 import JsBarcode from 'jsbarcode'
 
 export default function NIPGenerator() {
-    const { getNextNipNumber } = useApp()
 
     const [ddcCode, setDdcCode] = useState('')
     const [ddcSearch, setDdcSearch] = useState('')
@@ -12,10 +13,16 @@ export default function NIPGenerator() {
     const [selectedDate, setSelectedDate] = useState('')
     const [sumber, setSumber] = useState('')
     const [format, setFormat] = useState('')
+    const [title, setTitle] = useState('') // Judul Buku
     const [generatedNip, setGeneratedNip] = useState(null)
-    const [nipHistory, setNipHistory] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('nipHistory') || '[]') } catch { return [] }
-    })
+    const [nipHistory, setNipHistory] = useState([])
+
+    // Load history from backend on mount
+    useEffect(() => {
+        api.nip.getHistory()
+            .then(data => setNipHistory(data))
+            .catch(err => console.error("Failed to load history", err))
+    }, [])
 
     const barcodeRef = useRef(null)
     const ddcRef = useRef(null)
@@ -46,11 +53,6 @@ export default function NIPGenerator() {
         }
     }, [generatedNip])
 
-    // Save history
-    useEffect(() => {
-        localStorage.setItem('nipHistory', JSON.stringify(nipHistory))
-    }, [nipHistory])
-
     // Filter DDC codes
     const filteredDDC = DDC_CODES.filter(d => {
         const term = ddcSearch.toLowerCase()
@@ -59,39 +61,63 @@ export default function NIPGenerator() {
 
     const selectedDDC = DDC_CODES.find(d => d.code === ddcCode)
 
-    const handleGenerate = () => {
-        if (!ddcCode || !selectedDate || !sumber || !format) {
+    const handleGenerate = async () => {
+        if (!ddcCode || !selectedDate || !sumber || !format || !title) {
             alert('Mohon lengkapi semua field!')
             return
         }
 
-        const date = new Date(selectedDate)
-        const year = date.getFullYear().toString()
-        const month = (date.getMonth() + 1).toString().padStart(2, '0')
-        const day = date.getDate().toString().padStart(2, '0')
-        const yearMonth = `${year}${month}`
-        const formattedDate = `${day}/${month}/${year}` // DD/MM/YYYY
+        try {
+            // Call backend API
+            const record = await api.nip.generate({
+                ddcCode,
+                date: selectedDate,
+                sourceCode: sumber,
+                formatCode: format,
+                title
+            })
 
-        const nomorUrut = getNextNipNumber(year)
+            const result = {
+                visual: record.visualFormat,
+                barcode: record.barcode,
+                title: record.title,
+                ddcCode: record.ddcCode,
+                ddcLabel: record.ddcLabel || selectedDDC?.label || '',
+                yearMonth: record.yearMonth,
+                formattedDate: record.formattedDate,
+                sumber: SOURCE_KEGIATAN.find(s => s.code === record.sourceCode)?.label || record.sourceCode,
+                nomorUrut: record.serialNumber.toString().padStart(3, '0'),
+                format: FORMAT_BUKU.find(f => f.code === record.formatCode)?.label || record.formatCode,
+                createdAt: record.createdAt || new Date().toISOString()
+            }
 
-        const visual = `${ddcCode} - ${yearMonth} - ${sumber} - ${nomorUrut} - ${format}`
-        const barcode = `${ddcCode}${yearMonth}${sumber}${nomorUrut}${format}`
-
-        const result = {
-            visual,
-            barcode,
-            ddcCode,
-            ddcLabel: selectedDDC?.label || '',
-            yearMonth,
-            formattedDate, // Store human readable date
-            sumber: SOURCE_KEGIATAN.find(s => s.code === sumber)?.label || sumber,
-            nomorUrut,
-            format: FORMAT_BUKU.find(f => f.code === format)?.label || format,
-            createdAt: new Date().toISOString()
+            setGeneratedNip(result)
+            setNipHistory(prev => [result, ...prev])
+        } catch (e) {
+            console.error('NIP generate error:', e)
+            alert('Gagal generate NIP: ' + (e.message || 'Unknown error'))
         }
+    }
 
-        setGeneratedNip(result)
-        setNipHistory(prev => [result, ...prev].slice(0, 50))
+    const handleExport = () => {
+        if (nipHistory.length === 0) return alert('Tidak ada data untuk diekspor')
+
+        const data = nipHistory.map((item, idx) => ({
+            No: idx + 1,
+            'Judul Buku': item.title || '-',
+            'NIP (Visual)': item.visualFormat || item.visual,
+            'NIP (Barcode)': item.barcode,
+            'Kode DDC': item.ddcCode,
+            'Label DDC': item.ddcLabel || '-',
+            'Tanggal': item.formattedDate || item.yearMonth,
+            'Sumber': item.sourceCode || '-',
+            'Format': item.formatCode || '-'
+        }))
+
+        const ws = utils.json_to_sheet(data)
+        const wb = utils.book_new()
+        utils.book_append_sheet(wb, ws, "Riwayat NIP")
+        writeFile(wb, `Riwayat_NIP_${new Date().toISOString().split('T')[0]}.xlsx`)
     }
 
     const copyToClipboard = (text) => {
@@ -121,6 +147,17 @@ export default function NIPGenerator() {
                 {/* Input */}
                 <div className="card">
                     <div className="card-title" style={{ marginBottom: '1rem' }}>Input Data</div>
+
+                    {/* Judul Buku */}
+                    <div className="form-group">
+                        <label className="form-label">Judul Buku *</label>
+                        <input
+                            type="text"
+                            value={title}
+                            onChange={e => setTitle(e.target.value)}
+                            placeholder="Masukkan judul buku..."
+                        />
+                    </div>
 
                     {/* DDC Searchable Dropdown */}
                     <div className="form-group">
@@ -176,18 +213,18 @@ export default function NIPGenerator() {
                             <label className="form-label">Sumber Kegiatan *</label>
                             <select value={sumber} onChange={e => setSumber(e.target.value)}>
                                 <option value="">Pilih</option>
-                                {SOURCE_KEGIATAN.map(s => (
-                                    <option key={s.code} value={s.code}>{s.label} ({s.code})</option>
-                                ))}
+                                <option value="1">Umum (1)</option>
+                                <option value="2">Inkubator (2)</option>
+                                <option value="3">DAK (3)</option>
                             </select>
                         </div>
                         <div className="form-group">
                             <label className="form-label">Format Buku *</label>
                             <select value={format} onChange={e => setFormat(e.target.value)}>
                                 <option value="">Pilih</option>
-                                {FORMAT_BUKU.map(f => (
-                                    <option key={f.code} value={f.code}>{f.label} ({f.code})</option>
-                                ))}
+                                <option value="1">Cetak (1)</option>
+                                <option value="2">Digital (2)</option>
+                                <option value="3">Keduanya (3)</option>
                             </select>
                         </div>
                     </div>
@@ -204,6 +241,9 @@ export default function NIPGenerator() {
                             <div className="card-title" style={{ marginBottom: '1rem' }}>Hasil NIP</div>
 
                             <div className="nip-result">
+                                <div style={{ fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '0.5rem', textAlign: 'center' }}>
+                                    {generatedNip.title}
+                                </div>
                                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
                                     Format Visual (Human Readable)
                                 </div>
@@ -241,7 +281,13 @@ export default function NIPGenerator() {
 
                     {/* History */}
                     <div className="card">
-                        <div className="card-title" style={{ marginBottom: '0.75rem' }}>Riwayat NIP</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                            <div className="card-title">Riwayat NIP</div>
+                            <button className="btn btn-outline btn-sm" onClick={handleExport}>
+                                📥 Unduh Excel
+                            </button>
+                        </div>
+
                         {nipHistory.length === 0 ? (
                             <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '1rem' }}>
                                 Belum ada riwayat
@@ -252,10 +298,10 @@ export default function NIPGenerator() {
                                     <thead>
                                         <tr>
                                             <th>No</th>
+                                            <th>Judul Buku</th>
                                             <th>NIP</th>
                                             <th>DDC</th>
                                             <th>Tanggal</th>
-                                            <th>Format</th>
                                             <th></th>
                                         </tr>
                                     </thead>
@@ -263,10 +309,12 @@ export default function NIPGenerator() {
                                         {nipHistory.slice(0, 10).map((nip, idx) => (
                                             <tr key={idx}>
                                                 <td>{idx + 1}</td>
-                                                <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{nip.visual}</td>
+                                                <td>{nip.title || '-'}</td>
+                                                <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                                    {nip.visualFormat || nip.visual}
+                                                </td>
                                                 <td>{nip.ddcCode}</td>
                                                 <td>{nip.formattedDate || nip.yearMonth}</td>
-                                                <td>{nip.format}</td>
                                                 <td>
                                                     <button className="btn btn-ghost btn-sm" onClick={() => copyToClipboard(nip.barcode)}>
                                                         📋

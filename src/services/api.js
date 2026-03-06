@@ -2,42 +2,40 @@
 const API_URL = '/api';
 
 async function fetchAPI(endpoint, options = {}) {
-    const token = localStorage.getItem('token'); // Placeholder for Better Auth handling if needed manually
-
     const headers = {
         'Content-Type': 'application/json',
         ...options.headers,
     };
 
-    // Better Auth handles session via cookies usually, but if we need a token:
-    // if (token) headers['Authorization'] = `Bearer ${token}`;
-
     const response = await fetch(`${API_URL}${endpoint}`, {
         ...options,
         headers,
+        credentials: 'include', // Important for Better Auth cookie-based auth
     });
 
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `API Error: ${response.statusText}`);
+        throw new Error(errorData.error || errorData.message || `API Error: ${response.statusText}`);
     }
 
-    return response.json();
+    // Handle empty responses (e.g. 204 No Content)
+    const text = await response.text();
+    return text ? JSON.parse(text) : {};
 }
 
 export const api = {
-    // Auth
+    // Auth - Better Auth uses specific endpoint names
     auth: {
-        signIn: (email, password) => fetchAPI('/auth/sign-in', {
+        signIn: (email, password) => fetchAPI('/auth/sign-in/email', {
             method: 'POST',
             body: JSON.stringify({ email, password })
         }),
-        signUp: (data) => fetchAPI('/auth/sign-up', {
+        signUp: (data) => fetchAPI('/auth/sign-up/email', {
             method: 'POST',
             body: JSON.stringify(data)
         }),
         signOut: () => fetchAPI('/auth/sign-out', { method: 'POST' }),
-        getSession: () => fetchAPI('/auth/session'),
+        getSession: () => fetchAPI('/auth/get-session'),
     },
 
     // Projects
@@ -62,9 +60,11 @@ export const api = {
             body: JSON.stringify(data)
         }),
         addNote: (id, note) => fetchAPI(`/stages/${id}/notes`, {
-            method: 'POST',
+            method: 'PATCH',
             body: JSON.stringify(note)
         }),
+        getCandidates: (id) => fetchAPI(`/stages/${id}/candidates`),
+        getCandidatesByLabel: (label) => fetchAPI(`/stages/candidates-by-label?label=${encodeURIComponent(label)}`),
     },
 
     // Notifications
@@ -81,7 +81,24 @@ export const api = {
             method: 'POST',
             body: JSON.stringify(data)
         })
-    }
+    },
 
-    // Documents - To be implemented
+    // Admin - User Management
+    admin: {
+        getUsers: () => fetchAPI('/admin/users'),
+        updateUser: (id, data) => fetchAPI(`/admin/users/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data)
+        }),
+    },
+
+    // Documents
+    documents: {
+        getAll: () => fetchAPI('/documents'),
+        create: (data) => fetchAPI('/documents', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        }),
+        delete: (id) => fetchAPI(`/documents/${id}`, { method: 'DELETE' }),
+    },
 };

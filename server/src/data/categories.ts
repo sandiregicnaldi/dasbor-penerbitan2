@@ -7,7 +7,8 @@ export const CATEGORIES = {
         types: [
             { id: 'reguler', label: 'Umum / Reguler' },
             { id: 'inkubator', label: 'Inkubator Literasi' },
-            { id: 'dak', label: 'DAK Non Fisik' }
+            { id: 'dak', label: 'DAK Non Fisik' },
+            { id: 'terjemahan', label: 'Terjemahan' }
         ],
         stages: [
             { id: 'naskah', label: 'Kelengkapan Naskah', order: 1 },

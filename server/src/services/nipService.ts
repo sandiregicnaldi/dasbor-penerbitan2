@@ -19,6 +19,7 @@ export const NipService = {
         date: string; // ISO Date or YYYY-MM-DD
         sourceCode: string;
         formatCode: string;
+        title: string; // Judul Buku
     }) {
         // Parse date
         const dateObj = new Date(data.date);
@@ -68,6 +69,7 @@ export const NipService = {
             const [record] = await tx.insert(nipRecords).values({
                 barcode,
                 visualFormat,
+                title: data.title,
                 ddcCode: data.ddcCode,
                 ddcLabel,
                 yearMonth,

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { api } from '../services/api'
+import { CATEGORIES } from '../data/categories'
 // import { TEAM } from '../data/team' // Might need this for team list if not from API
 
 const AppContext = createContext(null)
@@ -16,18 +17,35 @@ export function AppProvider({ children }) {
     const [nipHistory, setNipHistory] = useState([]) // Was nipCounters, now history list
     const [documents, setDocuments] = useState([])
 
+    // Enrich project data with category labels
+    const enrichProjects = (rawProjects) => {
+        return rawProjects.map(p => {
+            const catConfig = CATEGORIES[p.category] || {}
+            const typeConfig = catConfig.types?.find(t => t.id === p.type)
+            return {
+                ...p,
+                categoryLabel: catConfig.label || p.category || '—',
+                categoryIcon: catConfig.icon || '📋',
+                typeLabel: typeConfig?.label || p.type || '—',
+                singlePJ: catConfig.singlePJ || false,
+            }
+        })
+    }
+
     // Load initial data
     const refreshData = useCallback(async () => {
         if (!currentUser) return;
         try {
-            const [projRes, notifRes, nipRes] = await Promise.all([
+            const [projRes, notifRes, nipRes, docRes] = await Promise.all([
                 api.projects.getAll(),
                 api.notifications.getAll(),
-                api.nip.getHistory()
+                api.nip.getHistory(),
+                api.documents.getAll().catch(() => [])
             ])
-            setProjects(projRes)
+            setProjects(enrichProjects(projRes))
             setNotifications(notifRes)
             setNipHistory(nipRes)
+            setDocuments(docRes)
         } catch (e) {
             console.error("Failed to fetch data", e)
         }
@@ -58,13 +76,10 @@ export function AppProvider({ children }) {
     }, [currentUser, refreshData])
 
 
-    // Persist to localStorage
-    useEffect(() => { saveState('currentUser', currentUser) }, [currentUser])
-    useEffect(() => { saveState('theme', theme) }, [theme])
-    useEffect(() => { saveState('projects', projects) }, [projects])
-    useEffect(() => { saveState('notifications', notifications) }, [notifications])
-    useEffect(() => { saveState('nipCounters', nipCounters) }, [nipCounters])
-    useEffect(() => { saveState('documents', documents) }, [documents])
+    // Theme persistence
+    useEffect(() => {
+        localStorage.setItem('theme', theme)
+    }, [theme])
 
     // Theme
     useEffect(() => {
@@ -78,10 +93,32 @@ export function AppProvider({ children }) {
     // Auth actions
     const login = useCallback(async (email, password) => {
         try {
-            await api.auth.signIn(email, password)
+            const signInResult = await api.auth.signIn(email, password)
             const session = await api.auth.getSession()
-            if (session?.user) setCurrentUser(session.user)
-            return true
+            if (session?.user) {
+                const userStatus = session.user.status || 'pending'
+                const userRole = session.user.role
+
+                // Admin always gets in
+                if (userRole === 'admin') {
+                    setCurrentUser(session.user)
+                    return true
+                }
+
+                // Non-admin: check status
+                if (userStatus === 'pending') {
+                    await api.auth.signOut() // Sign out pending users
+                    return 'pending'
+                }
+                if (userStatus === 'disabled') {
+                    await api.auth.signOut() // Sign out disabled users
+                    return 'disabled'
+                }
+
+                setCurrentUser(session.user)
+                return true
+            }
+            return false
         } catch (e) {
             console.error(e)
             return false
@@ -99,6 +136,7 @@ export function AppProvider({ children }) {
 
     const isAdmin = currentUser?.role === 'admin'
 
+
     // Project Actions
     const addProject = useCallback(async (projectData) => {
         try {
@@ -114,6 +152,16 @@ export function AppProvider({ children }) {
     const updateProject = useCallback(async (id, updates) => {
         try {
             await api.projects.update(id, updates)
+            await refreshData()
+        } catch (e) {
+            console.error(e)
+            throw e
+        }
+    }, [refreshData])
+
+    const deleteProject = useCallback(async (id) => {
+        try {
+            await api.projects.delete(id)
             await refreshData()
         } catch (e) {
             console.error(e)
@@ -178,12 +226,30 @@ export function AppProvider({ children }) {
         }
     }, [refreshData])
 
-    // Documents (Shim for now)
-    const addDocument = useCallback(() => { }, [])
-    const deleteDocument = useCallback(() => { }, [])
+    // Documents
+    const addDocument = useCallback(async (data) => {
+        try {
+            await api.documents.create(data)
+            await refreshData()
+        } catch (e) {
+            console.error('Failed to add document:', e)
+            throw e
+        }
+    }, [refreshData])
+
+    const deleteDocument = useCallback(async (id) => {
+        try {
+            await api.documents.delete(id)
+            await refreshData()
+        } catch (e) {
+            console.error('Failed to delete document:', e)
+            throw e
+        }
+    }, [refreshData])
 
     const value = {
         currentUser,
+        isAdmin,
         setCurrentUser, // kept for manual overrides if needed (e.g. testing)
         login,
         logout,
@@ -193,6 +259,7 @@ export function AppProvider({ children }) {
         projects,
         addProject,
         updateProject,
+        deleteProject,
         updateStage,
         addStageNote,
         notifications,
@@ -215,7 +282,13 @@ export function AppProvider({ children }) {
 
     return (
         <AppContext.Provider value={value}>
-            {!isLoading && children}
+            {isLoading ? (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+                    Loading...
+                </div>
+            ) : (
+                children
+            )}
         </AppContext.Provider>
     )
 }

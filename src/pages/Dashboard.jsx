@@ -1,6 +1,6 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { TEAM } from '../data/team'
 import { STATUS_LABELS } from '../data/categories'
 import {
     HiOutlineFolder, HiOutlineClock, HiOutlineExclamationTriangle,
@@ -8,44 +8,59 @@ import {
 } from 'react-icons/hi2'
 
 export default function Dashboard() {
-    const { projects, activeProjects, reviewPending, overdueProjects,
-        completedThisMonth, isAdmin, notifications } = useApp()
+    const { projects, isAdmin, notifications } = useApp()
     const navigate = useNavigate()
+    const [expandedStat, setExpandedStat] = useState(null)
 
-    // Leaderboard — count completed stages per PJ
-    const leaderboard = TEAM.filter(m => !m.isAdmin).map(member => {
-        const completedStages = projects.reduce((count, project) => {
-            return count + (project.stages?.filter(s =>
-                s.pjId === member.id && (s.status === 'done' || s.status === 'archived')
-            ).length || 0)
-        }, 0)
-        return { ...member, completedStages }
-    }).sort((a, b) => b.completedStages - a.completedStages)
-
-    const maxStages = Math.max(leaderboard[0]?.completedStages || 1, 1)
-
-    // Recent projects (last 10)
+    // Recent projects (last 8)
     const recentProjects = [...projects]
         .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
         .slice(0, 8)
 
     // Get current stage of a project
     const getCurrentStage = (project) => {
-        if (!project.stages) return null
-        const active = project.stages.find(s =>
-            s.status === 'active' || s.status === 'review' || s.status === 'revision'
-        )
-        return active || project.stages.find(s => s.status === 'draft') || project.stages[project.stages.length - 1]
+        if (!project.stages || project.stages.length === 0) return null
+        return project.stages.find(s =>
+            s.status !== 'done' && s.status !== 'archived'
+        ) || project.stages[project.stages.length - 1]
     }
+
+    // Compute stat lists
+    const activeProjects = projects.filter(p => {
+        const stage = getCurrentStage(p)
+        return stage && stage.status !== 'done' && stage.status !== 'archived'
+    })
+
+    const reviewPending = projects.filter(p =>
+        p.stages?.some(s => s.status === 'review')
+    )
+
+    const overdueProjects = projects.filter(p => {
+        const stage = getCurrentStage(p)
+        if (!stage?.deadline || stage.status === 'done' || stage.status === 'archived') return false
+        return new Date(stage.deadline) < new Date()
+    })
+
+    const now = new Date()
+    const completedThisMonth = projects.filter(p => {
+        const allDone = p.stages?.length > 0 && p.stages.every(s => s.status === 'done' || s.status === 'archived')
+        if (!allDone) return false
+        // Check if updated this month
+        const updated = new Date(p.updatedAt)
+        return updated.getMonth() === now.getMonth() && updated.getFullYear() === now.getFullYear()
+    })
+
+    const statConfigs = [
+        { key: 'active', label: 'Proyek Aktif', list: activeProjects, icon: <HiOutlineFolder />, color: 'blue' },
+        { key: 'review', label: 'Menunggu Review', list: reviewPending, icon: <HiOutlineClock />, color: 'yellow' },
+        { key: 'overdue', label: 'Terlambat', list: overdueProjects, icon: <HiOutlineExclamationTriangle />, color: 'red' },
+        { key: 'completed', label: 'Selesai Bulan Ini', list: completedThisMonth, icon: <HiOutlineCheckCircle />, color: 'green' },
+    ]
 
     const getStatusBadge = (status) => {
         const map = {
-            draft: 'badge-draft',
-            active: 'badge-active',
-            review: 'badge-review',
-            revision: 'badge-revision',
-            done: 'badge-done',
-            archived: 'badge-archived'
+            draft: 'badge-draft', active: 'badge-active', review: 'badge-review',
+            revision: 'badge-revision', done: 'badge-done', archived: 'badge-archived'
         }
         return map[status] || 'badge-draft'
     }
@@ -55,41 +70,100 @@ export default function Dashboard() {
         return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
     }
 
+    const formatDateTime = (iso) => {
+        if (!iso) return '—'
+        return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+    }
+
     const recentNotifs = notifications.slice(0, 5)
+
+    const handleStatClick = (key) => {
+        setExpandedStat(prev => prev === key ? null : key)
+    }
+
+    const expandedConfig = statConfigs.find(s => s.key === expandedStat)
 
     return (
         <div>
             {/* Stat Cards */}
             <div className="stat-cards">
-                <div className="stat-card">
-                    <div className="stat-icon blue"><HiOutlineFolder /></div>
-                    <div className="stat-info">
-                        <h3>{activeProjects.length}</h3>
-                        <p>Proyek Aktif</p>
+                {statConfigs.map(stat => (
+                    <div
+                        key={stat.key}
+                        className="stat-card"
+                        style={{ cursor: 'pointer', outline: expandedStat === stat.key ? '2px solid var(--primary)' : undefined, borderRadius: 'var(--radius)' }}
+                        onClick={() => handleStatClick(stat.key)}
+                    >
+                        <div className={`stat-icon ${stat.color}`}>{stat.icon}</div>
+                        <div className="stat-info">
+                            <h3>{stat.list.length}</h3>
+                            <p>{stat.label}</p>
+                        </div>
                     </div>
-                </div>
-                <div className="stat-card">
-                    <div className="stat-icon yellow"><HiOutlineClock /></div>
-                    <div className="stat-info">
-                        <h3>{reviewPending.length}</h3>
-                        <p>Menunggu Review</p>
-                    </div>
-                </div>
-                <div className="stat-card">
-                    <div className="stat-icon red"><HiOutlineExclamationTriangle /></div>
-                    <div className="stat-info">
-                        <h3>{overdueProjects.length}</h3>
-                        <p>Terlambat</p>
-                    </div>
-                </div>
-                <div className="stat-card">
-                    <div className="stat-icon green"><HiOutlineCheckCircle /></div>
-                    <div className="stat-info">
-                        <h3>{completedThisMonth.length}</h3>
-                        <p>Selesai Bulan Ini</p>
-                    </div>
-                </div>
+                ))}
             </div>
+
+            {/* Expanded Stat List */}
+            {expandedConfig && expandedConfig.list.length > 0 && (
+                <div className="card" style={{ marginBottom: '1.5rem', animation: 'fadeIn 0.2s ease' }}>
+                    <div className="card-header">
+                        <div className="card-title">{expandedConfig.label} ({expandedConfig.list.length})</div>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setExpandedStat(null)}>✕ Tutup</button>
+                    </div>
+                    <div className="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Judul</th>
+                                    <th>Tahap</th>
+                                    <th>PJ</th>
+                                    <th>Status</th>
+                                    <th>Deadline</th>
+                                    <th>Dibuat</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {expandedConfig.list.map(project => {
+                                    const currentStage = getCurrentStage(project)
+                                    const pj = currentStage?.pj || null
+                                    const isOverdue = currentStage?.deadline && new Date(currentStage.deadline) < new Date() &&
+                                        currentStage.status !== 'done' && currentStage.status !== 'archived'
+                                    return (
+                                        <tr key={project.id} className="clickable" onClick={() => navigate(`/projects/${project.id}`)}>
+                                            <td style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                {project.id}
+                                            </td>
+                                            <td><strong>{project.title}</strong></td>
+                                            <td style={{ fontSize: '0.75rem' }}>{currentStage?.label || '—'}</td>
+                                            <td>{pj?.name || '—'}</td>
+                                            <td>
+                                                <span className={`badge ${getStatusBadge(currentStage?.status)}`}>
+                                                    {STATUS_LABELS[currentStage?.status] || 'Draft'}
+                                                </span>
+                                            </td>
+                                            <td style={{ color: isOverdue ? 'var(--danger)' : 'inherit', fontWeight: isOverdue ? 700 : 400 }}>
+                                                {isOverdue && '⚠️ '}{formatDate(currentStage?.deadline)}
+                                            </td>
+                                            <td style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                                {formatDateTime(project.createdAt)}
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {expandedConfig && expandedConfig.list.length === 0 && (
+                <div className="card" style={{ marginBottom: '1.5rem', textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                    Tidak ada proyek untuk kategori "{expandedConfig.label}"
+                    <br />
+                    <button className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }} onClick={() => setExpandedStat(null)}>Tutup</button>
+                </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '1.5rem' }}>
                 {/* Project Table */}
@@ -124,6 +198,8 @@ export default function Dashboard() {
                                         <th>PJ</th>
                                         <th>Status</th>
                                         <th>Deadline</th>
+                                        <th>Dibuat</th>
+                                        <th>Folder</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -131,7 +207,7 @@ export default function Dashboard() {
                                         const currentStage = getCurrentStage(project)
                                         const doneCount = project.stages?.filter(s => s.status === 'done' || s.status === 'archived').length || 0
                                         const totalStages = project.stages?.length || 0
-                                        const pj = currentStage?.pjId ? TEAM.find(m => m.id === currentStage.pjId) : null
+                                        const pj = currentStage?.pj || null
                                         const isOverdue = currentStage?.deadline && new Date(currentStage.deadline) < new Date() &&
                                             currentStage.status !== 'done' && currentStage.status !== 'archived'
 
@@ -156,6 +232,16 @@ export default function Dashboard() {
                                                 <td style={{ color: isOverdue ? 'var(--danger)' : 'inherit', fontWeight: isOverdue ? '700' : '400' }}>
                                                     {isOverdue && '⚠️ '}{formatDate(currentStage?.deadline)}
                                                 </td>
+                                                <td style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                                    {formatDateTime(project.createdAt)}
+                                                </td>
+                                                <td onClick={(e) => e.stopPropagation()}>
+                                                    {(currentStage?.resultLink || project.gdriveLink) ? (
+                                                        <a href={currentStage?.resultLink || project.gdriveLink} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm" title="Buka Folder Pekerjaan">
+                                                            📂
+                                                        </a>
+                                                    ) : '—'}
+                                                </td>
                                             </tr>
                                         )
                                     })}
@@ -167,30 +253,6 @@ export default function Dashboard() {
 
                 {/* Right column */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                    {/* Leaderboard */}
-                    <div className="card">
-                        <div className="card-header">
-                            <div className="card-title">🏆 Leaderboard PJ</div>
-                        </div>
-                        {leaderboard.map((member, idx) => (
-                            <div key={member.id} className="leaderboard-item">
-                                <div className={`leaderboard-rank ${idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : 'default'}`}>
-                                    {idx + 1}
-                                </div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>{member.name}</div>
-                                    <div className="leaderboard-bar">
-                                        <div
-                                            className="leaderboard-bar-fill"
-                                            style={{ width: `${(member.completedStages / maxStages) * 100}%` }}
-                                        />
-                                    </div>
-                                </div>
-                                <div className="leaderboard-count">{member.completedStages}</div>
-                            </div>
-                        ))}
-                    </div>
-
                     {/* Recent Notifications */}
                     <div className="card">
                         <div className="card-header">

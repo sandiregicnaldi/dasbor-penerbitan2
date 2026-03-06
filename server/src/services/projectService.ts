@@ -3,15 +3,43 @@ import { db } from "../db";
 import { projects, stages, notifications } from "../db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { CATEGORIES } from "../data/categories";
-import { v4 as uuidv4 } from "uuid";
 
 export const ProjectService = {
-    // Get all projects with optional filtering
+    // Get all projects (admin)
     async getAllProjects() {
         return await db.query.projects.findMany({
             with: {
                 stages: {
                     orderBy: (stages, { asc }) => [asc(stages.order)],
+                    with: { pj: true },
+                },
+            },
+            orderBy: (projects, { desc }) => [desc(projects.createdAt)],
+        });
+    },
+
+    // Get projects where user is assigned as PJ on at least one stage
+    async getProjectsForUser(userId: string) {
+        console.log(`[getProjectsForUser] looking for stages with pjId=${userId}`);
+
+        // First get distinct project IDs where this user is PJ
+        const assignedStages = await db
+            .select({ projectId: stages.projectId })
+            .from(stages)
+            .where(eq(stages.pjId, userId))
+            .groupBy(stages.projectId);
+
+        const projectIds = assignedStages.map(s => s.projectId);
+        console.log(`[getProjectsForUser] found ${assignedStages.length} assigned stages, projectIds=${JSON.stringify(projectIds)}`);
+
+        if (projectIds.length === 0) return [];
+
+        return await db.query.projects.findMany({
+            where: (projects, { inArray }) => inArray(projects.id, projectIds),
+            with: {
+                stages: {
+                    orderBy: (stages, { asc }) => [asc(stages.order)],
+                    with: { pj: true },
                 },
             },
             orderBy: (projects, { desc }) => [desc(projects.createdAt)],
@@ -25,6 +53,7 @@ export const ProjectService = {
             with: {
                 stages: {
                     orderBy: (stages, { asc }) => [asc(stages.order)],
+                    with: { pj: true },
                 },
             },
         });
@@ -35,7 +64,8 @@ export const ProjectService = {
         title: string;
         category: keyof typeof CATEGORIES;
         type: string;
-        description?: string; // Optional (not in schema yet, maybe useful later)
+        description?: string;
+        gdriveLink?: string;
     }) {
         // Generate ID: PRJ-YYYY-XXXX
         const year = new Date().getFullYear();
@@ -57,12 +87,23 @@ export const ProjectService = {
                     category: data.category,
                     type: data.type,
                     workflowType: categoryConfig.workflow,
+                    gdriveLink: data.gdriveLink || null,
                 })
                 .returning();
 
             // 2. Create Stages based on template
-            if (categoryConfig.stages.length > 0) {
-                const stageValues = categoryConfig.stages.map((s) => ({
+            // Type-specific stage overrides
+            const TYPE_STAGES: Record<string, { label: string; order: number }[]> = {
+                terjemahan: [
+                    { label: "Terjemahkan", order: 1 },
+                    { label: "Penyuntingan Naskah Terjemahan", order: 2 },
+                ],
+            };
+
+            const stageTemplate = TYPE_STAGES[data.type] || categoryConfig.stages;
+
+            if (stageTemplate.length > 0) {
+                const stageValues = stageTemplate.map((s) => ({
                     projectId: id,
                     label: s.label,
                     order: s.order,
