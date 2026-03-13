@@ -3,7 +3,7 @@ import { api } from '../services/api'
 import { HiOutlineCheck, HiOutlineXMark, HiOutlinePencil } from 'react-icons/hi2'
 
 const SKILL_OPTIONS = [
-    'administrasi', 'isbn', 'penerjemah', 'distribusi',
+    'administrasi', 'editor', 'isbn', 'penerjemah', 'distribusi',
     'konten', 'keuangan', 'layout', 'desain', 'qc'
 ]
 
@@ -152,11 +152,44 @@ export default function UserManagement() {
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                <span style={{ fontSize: '0.8rem' }}>
-                                                    {(user.skills || []).join(', ') || '-'}
-                                                </span>
-                                                <button className="btn btn-ghost btn-sm" onClick={() => startEditSkills(user)}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                {(user.skills || []).length > 0 ? (
+                                                    (user.skills || []).map(skill => (
+                                                        <span
+                                                            key={skill}
+                                                            style={{
+                                                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                                                padding: '0.15rem 0.5rem', fontSize: '0.75rem',
+                                                                borderRadius: '12px', background: 'var(--bg-secondary)',
+                                                                border: '1px solid var(--border)'
+                                                            }}
+                                                        >
+                                                            {skill}
+                                                            <button
+                                                                onClick={async () => {
+                                                                    const updated = user.skills.filter(s => s !== skill)
+                                                                    try {
+                                                                        await api.admin.updateUser(user.id, { skills: updated })
+                                                                        await fetchUsers()
+                                                                    } catch (e) {
+                                                                        alert('Gagal hapus skill: ' + e.message)
+                                                                    }
+                                                                }}
+                                                                style={{
+                                                                    background: 'none', border: 'none', cursor: 'pointer',
+                                                                    color: 'var(--danger)', fontSize: '0.8rem', padding: 0,
+                                                                    lineHeight: 1, fontWeight: 700
+                                                                }}
+                                                                title={`Hapus skill ${skill}`}
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        </span>
+                                                    ))
+                                                ) : (
+                                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>-</span>
+                                                )}
+                                                <button className="btn btn-ghost btn-sm" onClick={() => startEditSkills(user)} title="Tambah skill">
                                                     <HiOutlinePencil />
                                                 </button>
                                             </div>

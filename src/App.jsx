@@ -81,7 +81,7 @@ export default function App() {
             <Route element={<Layout />}>
                 <Route index element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                 <Route path="projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
-                <Route path="projects/new" element={<AdminRoute><ProjectNew /></AdminRoute>} />
+                <Route path="projects/new" element={<ProtectedRoute><ProjectNew /></ProtectedRoute>} />
                 <Route path="projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
                 <Route path="archive" element={<ProtectedRoute><Archive /></ProtectedRoute>} />
                 <Route path="nip" element={<ProtectedRoute><NIPGenerator /></ProtectedRoute>} />

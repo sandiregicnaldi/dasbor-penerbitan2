@@ -138,8 +138,8 @@ export default function ProjectNew() {
                 return {
                     ...stage,
                     status: idx < startFromStage ? 'done' : (isFirst ? 'draft' : 'draft'),
-                    pjId: isFirst ? (assignment.pjId || '') : '',
-                    deadline: isFirst ? (assignment.deadline || '') : '',
+                    pjId: assignment.pjId || '',
+                    deadline: assignment.deadline || '',
                     progress: idx < startFromStage ? 100 : 0,
                     resultLink: '',
                     notes: []

@@ -1,13 +1,14 @@
 
 import { db } from "../db";
 import { projects, stages, notifications } from "../db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import { CATEGORIES } from "../data/categories";
 
 export const ProjectService = {
-    // Get all projects (admin)
+    // Get all projects (admin) — exclude archived
     async getAllProjects() {
         return await db.query.projects.findMany({
+            where: sql`${projects.status} IS DISTINCT FROM 'archived'`,
             with: {
                 stages: {
                     orderBy: (stages, { asc }) => [asc(stages.order)],
@@ -18,24 +19,33 @@ export const ProjectService = {
         });
     },
 
-    // Get projects where user is assigned as PJ on at least one stage
+    // Get projects where user is assigned as PJ OR created by the user
     async getProjectsForUser(userId: string) {
-        console.log(`[getProjectsForUser] looking for stages with pjId=${userId}`);
+        console.log(`[getProjectsForUser] looking for stages with pjId=${userId} or createdBy=${userId}`);
 
-        // First get distinct project IDs where this user is PJ
+        // Get distinct project IDs where this user is PJ
         const assignedStages = await db
             .select({ projectId: stages.projectId })
             .from(stages)
             .where(eq(stages.pjId, userId))
             .groupBy(stages.projectId);
 
-        const projectIds = assignedStages.map(s => s.projectId);
-        console.log(`[getProjectsForUser] found ${assignedStages.length} assigned stages, projectIds=${JSON.stringify(projectIds)}`);
+        const projectIds = new Set(assignedStages.map(s => s.projectId));
 
-        if (projectIds.length === 0) return [];
+        // Also get projects created by this user
+        const createdProjects = await db.query.projects.findMany({
+            where: sql`${projects.createdBy} = ${userId} AND (${projects.status} IS DISTINCT FROM 'archived')`,
+            columns: { id: true },
+        });
+        createdProjects.forEach(p => projectIds.add(p.id));
+
+        const allIds = [...projectIds];
+        console.log(`[getProjectsForUser] found ${allIds.length} projects (assigned + created)`);
+
+        if (allIds.length === 0) return [];
 
         return await db.query.projects.findMany({
-            where: (projects, { inArray }) => inArray(projects.id, projectIds),
+            where: sql`${projects.id} IN (${sql.join(allIds.map(id => sql`${id}`), sql`, `)}) AND (${projects.status} IS DISTINCT FROM 'archived')`,
             with: {
                 stages: {
                     orderBy: (stages, { asc }) => [asc(stages.order)],
@@ -59,6 +69,20 @@ export const ProjectService = {
         });
     },
 
+    // Get archived projects
+    async getArchivedProjects() {
+        return await db.query.projects.findMany({
+            where: sql`${projects.status} = 'archived'`,
+            with: {
+                stages: {
+                    orderBy: (stages, { asc }) => [asc(stages.order)],
+                    with: { pj: true },
+                },
+            },
+            orderBy: (projects, { desc }) => [desc(projects.updatedAt)],
+        });
+    },
+
     // Create new project
     async createProject(data: {
         title: string;
@@ -66,6 +90,8 @@ export const ProjectService = {
         type: string;
         description?: string;
         gdriveLink?: string;
+        createdBy?: string;
+        stages?: { label: string; order: number; pjId?: string; deadline?: string }[];
     }) {
         // Generate ID: PRJ-YYYY-XXXX
         const year = new Date().getFullYear();
@@ -88,6 +114,7 @@ export const ProjectService = {
                     type: data.type,
                     workflowType: categoryConfig.workflow,
                     gdriveLink: data.gdriveLink || null,
+                    createdBy: data.createdBy || null,
                 })
                 .returning();
 
@@ -102,16 +129,25 @@ export const ProjectService = {
 
             const stageTemplate = TYPE_STAGES[data.type] || categoryConfig.stages;
 
-            if (stageTemplate.length > 0) {
-                const stageValues = stageTemplate.map((s) => ({
-                    projectId: id,
-                    label: s.label,
-                    order: s.order,
-                    status: s.order === 1 ? "active" : "draft", // First stage active
-                }));
+            // Use custom stages from request if template is empty (e.g., 'lainnya')
+            const finalStages = stageTemplate.length > 0 ? stageTemplate : (data.stages || []);
 
-                // For 'medsos' / 'keuangan' (singlePJ), we might assign PJ later
-                // For now just create the stages
+            if (finalStages.length > 0) {
+                // Merge PJ/deadline from request stages into template stages
+                const requestStages = data.stages || [];
+                const stageValues = finalStages.map((s: any, idx: number) => {
+                    // Find matching request stage by order or index
+                    const reqStage = requestStages.find((r: any) => r.order === s.order) || requestStages[idx] || {};
+                    return {
+                        projectId: id,
+                        label: s.label,
+                        order: s.order,
+                        status: s.order === 1 ? "active" : "draft",
+                        pjId: s.pjId || reqStage.pjId || null,
+                        deadline: (s.deadline || reqStage.deadline) ? new Date(s.deadline || reqStage.deadline) : null,
+                    };
+                });
+
                 await tx.insert(stages).values(stageValues);
             }
 

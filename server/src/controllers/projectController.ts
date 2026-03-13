@@ -10,6 +10,12 @@ const createProjectSchema = z.object({
     type: z.string().min(1),
     description: z.string().optional(),
     gdriveLink: z.string().optional(),
+    stages: z.array(z.object({
+        label: z.string(),
+        order: z.number(),
+        pjId: z.string().optional(),
+        deadline: z.string().optional(),
+    })).optional(),
 });
 
 export const ProjectController = {
@@ -39,10 +45,19 @@ export const ProjectController = {
         }
     },
 
+    async getArchived(req: Request, res: Response) {
+        try {
+            const archived = await ProjectService.getArchivedProjects();
+            res.json(archived);
+        } catch (error) {
+            res.status(500).json({ error: "Failed to fetch archived projects" });
+        }
+    },
+
     async create(req: Request, res: Response) {
         try {
             const data = createProjectSchema.parse(req.body);
-            const project = await ProjectService.createProject(data as any);
+            const project = await ProjectService.createProject({ ...data, createdBy: req.user?.id } as any);
             res.status(201).json(project);
         } catch (error) {
             if (error instanceof z.ZodError) {

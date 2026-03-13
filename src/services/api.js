@@ -51,10 +51,15 @@ export const api = {
             body: JSON.stringify(data)
         }),
         delete: (id) => fetchAPI(`/projects/${id}`, { method: 'DELETE' }),
+        getArchived: () => fetchAPI('/projects/archived'),
     },
 
     // Stages
     stages: {
+        create: (data) => fetchAPI('/stages', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        }),
         update: (id, data) => fetchAPI(`/stages/${id}`, {
             method: 'PATCH',
             body: JSON.stringify(data)

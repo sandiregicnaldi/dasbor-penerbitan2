@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { STATUS_LABELS } from '../data/categories'
@@ -8,9 +8,23 @@ import {
 } from 'react-icons/hi2'
 
 export default function Dashboard() {
-    const { projects, isAdmin, notifications } = useApp()
+    const { projects, isAdmin, notifications, updateProject } = useApp()
     const navigate = useNavigate()
     const [expandedStat, setExpandedStat] = useState(null)
+
+    // Auto-archive: projects completed > 2 months ago
+    useEffect(() => {
+        const now = new Date()
+        const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
+        projects.forEach(p => {
+            const allDone = p.stages?.length > 0 && p.stages.every(s => s.status === 'done' || s.status === 'archived')
+            if (!allDone) return
+            const updated = new Date(p.updatedAt)
+            if (updated < twoMonthsAgo) {
+                updateProject(p.id, { status: 'archived' }).catch(() => { })
+            }
+        })
+    }, [projects, updateProject])
 
     // Recent projects (last 8)
     const recentProjects = [...projects]
@@ -42,19 +56,20 @@ export default function Dashboard() {
     })
 
     const now = new Date()
-    const completedThisMonth = projects.filter(p => {
+    const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())
+    const completedProjects = projects.filter(p => {
         const allDone = p.stages?.length > 0 && p.stages.every(s => s.status === 'done' || s.status === 'archived')
         if (!allDone) return false
-        // Check if updated this month
+        // Show if completed within the last 2 months
         const updated = new Date(p.updatedAt)
-        return updated.getMonth() === now.getMonth() && updated.getFullYear() === now.getFullYear()
+        return updated >= twoMonthsAgo
     })
 
     const statConfigs = [
         { key: 'active', label: 'Proyek Aktif', list: activeProjects, icon: <HiOutlineFolder />, color: 'blue' },
         { key: 'review', label: 'Menunggu Review', list: reviewPending, icon: <HiOutlineClock />, color: 'yellow' },
         { key: 'overdue', label: 'Terlambat', list: overdueProjects, icon: <HiOutlineExclamationTriangle />, color: 'red' },
-        { key: 'completed', label: 'Selesai Bulan Ini', list: completedThisMonth, icon: <HiOutlineCheckCircle />, color: 'green' },
+        { key: 'completed', label: 'Proyek Selesai', list: completedProjects, icon: <HiOutlineCheckCircle />, color: 'green' },
     ]
 
     const getStatusBadge = (status) => {
@@ -129,8 +144,14 @@ export default function Dashboard() {
                                     const pj = currentStage?.pj || null
                                     const isOverdue = currentStage?.deadline && new Date(currentStage.deadline) < new Date() &&
                                         currentStage.status !== 'done' && currentStage.status !== 'archived'
+                                    const isCompleted = expandedStat === 'completed'
                                     return (
-                                        <tr key={project.id} className="clickable" onClick={() => navigate(`/projects/${project.id}`)}>
+                                        <tr
+                                            key={project.id}
+                                            className={isCompleted ? '' : 'clickable'}
+                                            style={isCompleted ? { background: 'rgba(34,197,94,0.06)' } : undefined}
+                                            onClick={isCompleted ? undefined : () => navigate(`/projects/${project.id}`)}
+                                        >
                                             <td style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                                 {project.id}
                                             </td>

@@ -189,6 +189,16 @@ export function AppProvider({ children }) {
         }
     }, [refreshData])
 
+    const createStage = useCallback(async (data) => {
+        try {
+            await api.stages.create(data)
+            await refreshData()
+        } catch (e) {
+            console.error(e)
+            throw e
+        }
+    }, [refreshData])
+
     // Notifications
     const markNotificationRead = useCallback(async (id) => {
         try {
@@ -262,6 +272,7 @@ export function AppProvider({ children }) {
         deleteProject,
         updateStage,
         addStageNote,
+        createStage,
         notifications,
         markNotificationRead,
         markAllNotificationsRead,

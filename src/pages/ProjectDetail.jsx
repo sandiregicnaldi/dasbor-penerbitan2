@@ -7,7 +7,7 @@ import { api } from '../services/api'
 export default function ProjectDetail() {
     const { id } = useParams()
     const navigate = useNavigate()
-    const { projects, updateProject, deleteProject, updateStage, addStageNote, addNotification, isAdmin, currentUser } = useApp()
+    const { projects, updateProject, deleteProject, updateStage, addStageNote, createStage, addNotification, isAdmin, currentUser } = useApp()
 
     const project = projects.find(p => p.id === id)
     const [selectedStageIdx, setSelectedStageIdx] = useState(null)
@@ -25,6 +25,9 @@ export default function ProjectDetail() {
     const [nextStageIdx, setNextStageIdx] = useState('')
     const [nextPjId, setNextPjId] = useState('')
     const [nextDeadline, setNextDeadline] = useState('')
+    // Add stage for lainnya
+    const [newStageName, setNewStageName] = useState('')
+    const [showAddStage, setShowAddStage] = useState(false)
 
     // Assign pending stage modal
     const [showAssignModal, setShowAssignModal] = useState(false)
@@ -74,7 +77,7 @@ export default function ProjectDetail() {
     const activeStage = stages[activeStageIdx]
     // PJ lookup: use enriched pj relation from API, with fallback
     const pj = activeStage?.pjId ? (activeStage.pj ? { id: activeStage.pj.id, name: activeStage.pj.name, avatar: activeStage.pj.avatarInitials || activeStage.pj.name?.substring(0, 2).toUpperCase() } : { id: activeStage.pjId, name: activeStage.pj?.name || 'Tunggu Penugasan...', avatar: '??' }) : null
-    const isMyStage = currentUser?.id === activeStage?.pjId
+    const isMyStage = currentUser?.id === activeStage?.pjId || currentUser?.id === project.createdBy
     const catObj = CATEGORIES[project.category]
 
     const isOverdue = (stage) => {
@@ -142,18 +145,37 @@ export default function ProjectDetail() {
     }
 
     // Admin: QC Approve
-    const handleApprove = () => {
-        updateStage(activeStage.id, { status: 'done' })
+    const handleApprove = async () => {
+        // 1. Mark current stage as done
+        await updateStage(activeStage.id, { status: 'done' })
 
-        // If next stage selected, activate it
+        // 2. Activate next stage
         if (nextStageIdx !== '' && stages[parseInt(nextStageIdx)]) {
-            const nextStage = stages[parseInt(nextStageIdx)]
+            const targetIdx = parseInt(nextStageIdx)
+            // Mark all intermediate stages as done (skipped)
+            for (let i = activeStageIdx + 1; i < targetIdx; i++) {
+                if (stages[i] && stages[i].status !== 'done' && stages[i].status !== 'archived') {
+                    await updateStage(stages[i].id, { status: 'done', progress: 100 })
+                }
+            }
+            // Activate the selected stage
+            const nextStage = stages[targetIdx]
             const pjId = project.singlePJ ? activeStage.pjId : nextPjId
-            updateStage(nextStage.id, {
-                status: 'draft',
+            await updateStage(nextStage.id, {
+                status: 'active',
                 pjId: pjId,
                 deadline: nextDeadline
             })
+        } else {
+            // Auto-advance: find the next draft stage in order
+            const nextDraft = stages.find((s, idx) => idx > activeStageIdx && s.status === 'draft')
+            if (nextDraft) {
+                const pjId = project.singlePJ ? activeStage.pjId : null
+                await updateStage(nextDraft.id, {
+                    status: 'active',
+                    ...(pjId ? { pjId } : {})
+                })
+            }
         }
 
         addNotification({
@@ -414,18 +436,24 @@ export default function ProjectDetail() {
                                                 ✏️ Ubah PJ / Deadline
                                             </button>
                                         )}
-                                        {/* Archive button for done stages — visible to all roles */}
-                                        {stage.status === 'done' && (
+                                        {/* Archive button — only on LAST stage when it's done */}
+                                        {idx === stages.length - 1 && stage.status === 'done' && (
                                             <button
                                                 className="btn btn-ghost btn-sm"
                                                 style={{ marginTop: '0.25rem', fontSize: '0.7rem', color: 'var(--success)' }}
-                                                onClick={(e) => {
+                                                onClick={async (e) => {
                                                     e.stopPropagation()
-                                                    setArchiveStageIdx(idx)
-                                                    setShowArchiveConfirm(true)
+                                                    if (!window.confirm(`Arsipkan tahapan proyek "${project.title}"? Semua tahapan akan ditandai selesai.`)) return
+                                                    // Archive all stages
+                                                    for (const s of stages) {
+                                                        if (s.status !== 'archived') {
+                                                            await updateStage(s.id, { status: 'archived' })
+                                                        }
+                                                    }
+                                                    navigate('/')
                                                 }}
                                             >
-                                                📦 Arsipkan
+                                                📦 Arsipkan Proyek
                                             </button>
                                         )}
                                     </div>
@@ -433,6 +461,48 @@ export default function ProjectDetail() {
                             )
                         })}
                     </div>
+
+                    {/* Add stage button for lainnya */}
+                    {isAdmin && project.category === 'lainnya' && (
+                        <div style={{ marginTop: '0.75rem' }}>
+                            {showAddStage ? (
+                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    <input
+                                        type="text"
+                                        value={newStageName}
+                                        onChange={e => setNewStageName(e.target.value)}
+                                        placeholder="Nama tahapan baru..."
+                                        style={{ flex: 1, fontSize: '0.8rem' }}
+                                        autoFocus
+                                    />
+                                    <button
+                                        className="btn btn-primary btn-sm"
+                                        disabled={!newStageName.trim()}
+                                        onClick={async () => {
+                                            await createStage({
+                                                projectId: project.id,
+                                                label: newStageName.trim(),
+                                                order: stages.length + 1
+                                            })
+                                            setNewStageName('')
+                                            setShowAddStage(false)
+                                        }}
+                                    >
+                                        ✓
+                                    </button>
+                                    <button className="btn btn-ghost btn-sm" onClick={() => { setShowAddStage(false); setNewStageName('') }}>✕</button>
+                                </div>
+                            ) : (
+                                <button
+                                    className="btn btn-outline btn-sm"
+                                    style={{ width: '100%' }}
+                                    onClick={() => setShowAddStage(true)}
+                                >
+                                    ➕ Tambah Tahapan
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Right: Active Stage Detail */}
@@ -518,8 +588,8 @@ export default function ProjectDetail() {
                                                     )
                                                 })}
                                             </div>
-                                            {/* Save Progress Button */}
-                                            {localProgress !== null && localProgress !== activeStage.progress && (
+                                            {/* Save Progress Button — only when changed AND not at 100% */}
+                                            {localProgress !== null && localProgress !== activeStage.progress && localProgress !== 100 && (
                                                 <button
                                                     className="btn btn-primary btn-sm"
                                                     style={{ marginTop: '0.5rem' }}
@@ -528,11 +598,11 @@ export default function ProjectDetail() {
                                                     💾 Simpan Progress
                                                 </button>
                                             )}
-                                            {/* Submit Review Button */}
+                                            {/* Submit Review Button — only at 100%, replaces Simpan Progress */}
                                             {(localProgress === 100 || activeStage.progress === 100) && activeStage.status !== 'review' && isMyStage && (
                                                 <button
                                                     className="btn btn-warning btn-sm"
-                                                    style={{ marginTop: '0.5rem', marginLeft: '0.5rem' }}
+                                                    style={{ marginTop: '0.5rem' }}
                                                     onClick={() => setShowReviewConfirm(true)}
                                                 >
                                                     📤 Ajukan Review

@@ -118,4 +118,30 @@ export const StageController = {
             res.status(500).json({ error: "Failed to get candidates" });
         }
     },
+
+    async create(req: Request, res: Response) {
+        try {
+            const schema = z.object({
+                projectId: z.string(),
+                label: z.string().min(1),
+                order: z.number(),
+            });
+            const data = schema.parse(req.body);
+            const [newStage] = await db
+                .insert(stages)
+                .values({
+                    projectId: data.projectId,
+                    label: data.label,
+                    order: data.order,
+                    status: 'draft',
+                })
+                .returning();
+            res.status(201).json(newStage);
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                return res.status(400).json({ error: error.errors });
+            }
+            res.status(500).json({ error: "Failed to create stage" });
+        }
+    },
 };

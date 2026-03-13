@@ -73,11 +73,9 @@ export default function Projects() {
                     <h1>Proyek</h1>
                     <p>{filteredProjects.length} proyek ditemukan</p>
                 </div>
-                {isAdmin && (
-                    <button className="btn btn-primary" onClick={() => navigate('/projects/new')}>
-                        <HiOutlinePlus /> Proyek Baru
-                    </button>
-                )}
+                <button className="btn btn-primary" onClick={() => navigate('/projects/new')}>
+                    <HiOutlinePlus /> Proyek Baru
+                </button>
             </div>
 
             {/* Filter bar */}

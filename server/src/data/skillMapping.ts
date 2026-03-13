@@ -16,7 +16,7 @@ export const STAGE_SKILL_MAP: Record<string, string[]> = {
     "Terjemahkan": ["penerjemah"],
     "Penyuntingan Naskah Terjemahan": ["penerjemah"],
 
-    "Unggah ke Sipena atau Ipusnas": ["distribusi"],
+    "Unggah ke Sipena dan Ipusnas": ["distribusi"],
 
     // Medsos
     "Penyusunan Teks": ["konten"],
@@ -24,12 +24,12 @@ export const STAGE_SKILL_MAP: Record<string, string[]> = {
     "Tinjauan Konten": ["konten"],
     "Pengunggahan": ["konten"],
 
-    // Keuangan
-    "Dokumen rincian anggaran belanja APBN untuk tim kerja pemerbitan": ["keuangan"],
+    // Keuangan (labels must match categories.ts exactly)
+    "Dokumen rincian anggaran belanja APBN": ["keuangan"],
     "Kerangka Acuan Kerja (KAK) Penerbitan": ["keuangan"],
     "Implementasi Kegiatan Penerbitan": ["keuangan"],
-    "Pertanggungjawaban dan Administrasi Keuangan Kegiatan": ["keuangan"],
-    "Verifikasi dan Validasi Hasil Kegiatan oleh Ketua Kelompok Kerja (Kapokja)": ["keuangan"],
+    "Pertanggungjawaban dan Administrasi Keuangan": ["keuangan"],
+    "Verifikasi dan Validasi Hasil Kegiatan": ["keuangan"],
     "Laporan Kinerja dan Evaluasi Kegiatan": ["keuangan"],
 
     // Layout & Desain

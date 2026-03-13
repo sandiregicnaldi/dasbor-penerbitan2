@@ -61,6 +61,8 @@ export const projects = pgTable("projects", {
     category: text("category").notNull(), // 'terbitan', 'medsos', etc.
     type: text("type"), // 'reguler', etc.
     workflowType: text("workflow_type").default("sequential"), // 'sequential', 'parallel'
+    status: text("status").default("active"), // 'active', 'archived'
+    createdBy: text("created_by"), // userId of creator
     gdriveLink: text("gdrive_link"),
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),

@@ -17,14 +17,16 @@ const router = Router();
 // Projects
 router.get("/projects", ProjectController.getAll);
 router.post("/projects", ProjectController.create);
+router.get("/projects/archived", ProjectController.getArchived);
 router.get("/projects/:id", ProjectController.getOne);
 router.patch("/projects/:id", ProjectController.update);
 router.delete("/projects/:id", requireAdmin, ProjectController.delete);
 
 // Stages
+router.post("/stages", requireAdmin, StageController.create);
 router.patch("/stages/:id", StageController.update);
 router.patch("/stages/:id/notes", requirePJOrAdmin, StageController.addNote);
-router.get("/stages/candidates-by-label", requireAdmin, StageController.getCandidatesByLabel);
+router.get("/stages/candidates-by-label", StageController.getCandidatesByLabel);
 router.get("/stages/:id/candidates", requireAdmin, StageController.getCandidates);
 
 // NIP

@@ -41,6 +41,19 @@ app.get("/health", (req, res) => {
 // API Routes
 app.use("/api", router);
 
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// Auto-migration: add status column if missing
+async function runMigrations() {
+    try {
+        await db.execute(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
+        await db.execute(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_by TEXT`);
+        console.log("[migration] projects.status and created_by columns ensured");
+    } catch (e) {
+        console.warn("[migration] skipped:", (e as Error).message);
+    }
+}
+
+runMigrations().then(() => {
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
 });
